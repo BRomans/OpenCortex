@@ -29,8 +29,8 @@ sudo apt-get install python3
 ### Installation
 1. Clone the repository
 ```bash
-git clone https://github.com/your-username/project-name.git
-cd project-name
+git clone https://github.com/BRomans/UnicornUtilities.git
+cd UnicornUtilities
 ```
 2. Create a virtual environment
 ```bash
