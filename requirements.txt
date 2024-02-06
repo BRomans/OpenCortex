@@ -1,0 +1,9 @@
+pandas
+numpy
+mne
+pyserial
+brainflow
+matplotlib
+PyQt5
+pylsl
+pyqtgraph
