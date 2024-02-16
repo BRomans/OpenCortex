@@ -1,7 +1,5 @@
 import matplotlib
 import matplotlib.pyplot as plt
-from mne.filter import notch_filter, filter_data
-
 from utils.loader import load_data, convert_to_mne, unicorn_channels
 
 matplotlib.use("Qt5Agg")
@@ -9,7 +7,7 @@ matplotlib.use("Qt5Agg")
 unicorn_fs = 250
 
 if __name__ == "__main__":
-    eeg, trigger = load_data("../data/UnicornRecorder_4.csv", header=True, fs=unicorn_fs, skiprows=5)
+    eeg, trigger = load_data("../data/aep/auditory_erp_eyes_open_S1.csv", header=False, fs=unicorn_fs, skiprows=5)
     print("Loaded data with shape:" + str(eeg.shape) + " and trigger shape: " + str(trigger.shape))
     print("That means we have " + str(eeg.shape[0]) + " samples and " + str(eeg.shape[1]) + " channels.")
 
@@ -31,6 +29,6 @@ if __name__ == "__main__":
     # fmax = Nyquist frequency, i.e. half of the sampling frequency
     # fmin = 0, i.e. the lowest frequency
     # This time we filtered the signal to include only frequencies of interest: Theta, Alpha, Beta
-    pxx_filt = filtered.compute_psd(fmin=1, fmax=30)
+    pxx_filt = filtered.compute_psd(fmin=1, fmax=50)
     pxx_filt.plot()
     plt.show()

@@ -7,3 +7,7 @@ matplotlib
 PyQt5
 pylsl
 pyqtgraph
+seaborn
+scikit-learn
+imblearn
+pyarrow
