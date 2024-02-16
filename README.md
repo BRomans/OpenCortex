@@ -1,5 +1,6 @@
 # UnicornUtilities
 A collection of utilities for interfacing with g.tec Unicorn devices series, load and plot data.
+Complete with examples to analyse EEG data using the library MNE and to perform classification tasks using scikit-learn.
 
 ## Table of Contents
 
