@@ -53,6 +53,11 @@ To run any example, use the following command:
 python unicorn_brainflow.py
 ```
 
+## Notebooks
+The [notebooks](notebooks) folder contains some examples on how to use the utilities provided in this repository. You 
+can run the notebooks using Jupyter, Jupyter Lab or Google Colab.
+
+
 ## Contributing
 If you'd like to contribute, please fork the repository and use a feature branch. Pull requests are warmly welcome. 
 1. Fork the project.
@@ -60,6 +65,23 @@ If you'd like to contribute, please fork the repository and use a feature branch
 3. Make your changes and commit them.
 4. Push to the branch and create a pull request.
 
+
+## Credits
+This project is freely available to anyone and is not intended for commercial use. If you use this project for academic 
+purposes, please cite the original authors.
+
 ## License
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-```
+
+## Authors
+- [Michele Romani](https://bromans.github.io/)
+
+Please make sure to update the [AUTHORS](AUTHORS) file if you are contributing to the project.
+
+
+## Acknowledgments
+- [Brainflow](https://brainflow.readthedocs.io/en/stable/index.html)
+- [g.tec](https://www.gtec.at/)
+- [MNE](https://mne.tools/stable/index.html)
+- [Scikit-learn](https://scikit-learn.org/stable/)
+
