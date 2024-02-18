@@ -3,7 +3,7 @@ from mne.io import RawArray
 import numpy as np
 
 
-def basic_preprocessing(data: RawArray, lp_freq: int = 1, hp_freq: int = 30, notch_freqs: tuple = (50, 60)):
+def basic_preprocessing_pipeline(data: RawArray, lp_freq: float = 1, hp_freq: float = 30, notch_freqs: tuple = (50, 60)):
     """
     This function is used to do basic preprocessing on the data.
     """
