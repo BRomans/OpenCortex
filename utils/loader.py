@@ -18,7 +18,7 @@ def load_data(path, header, fs, skiprows=5):
         df = pd.read_csv(path, names=unicorn_channels + ["STI"], skiprows=skiprows * fs)
         trigger = np.array(df.STI)
     eeg = df.iloc[:, 0:len(unicorn_channels)].to_numpy()
-    return eeg, trigger
+    return eeg, trigger, df
 
 
 def convert_to_mne(eeg, trigger, fs, chs, rescale=1e6, recompute=False):
