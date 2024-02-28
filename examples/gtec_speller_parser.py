@@ -1,5 +1,12 @@
 import pandas as pd
 import os
+import matplotlib
+import matplotlib.pyplot as plt
+
+from utils.loader import unicorn_channels, convert_to_mne
+
+matplotlib.use("Qt5Agg")
+
 
 def parse_element(element):
     if isinstance(element, int) and element == 0:
@@ -26,4 +33,10 @@ parsed_data = list(map(parse_element, array_of_ids))
 
 # Replace the data column with the parsed data
 df['id'] = parsed_data
-print(df.head(5))
+print(df.head())
+
+raw_array = convert_to_mne(df.iloc[:, 1:9], df['trigger'].to_numpy(), 250, chs=unicorn_channels, recompute=False)
+
+raw_array.save('../data/speller_test-raw.fif', overwrite=True)
+raw_array.plot()
+plt.show()
