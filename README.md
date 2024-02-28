@@ -53,7 +53,7 @@ pip install -r requirements.txt
 ## Usage
 To run any example, use the following command:
 ```bash
-python unicorn_brainflow.py
+python examples/<example_name>.py
 ```
 
 ## Examples
