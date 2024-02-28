@@ -8,6 +8,8 @@ Complete with examples to analyse EEG data using the library MNE and to perform 
   - [Prerequisites](#prerequisites)
   - [Installation](#installation)
 - [Usage](#usage)
+- [Examples](#examples)
+- [Notebooks](#notebooks)
 - [Contributing](#contributing)
 - [License](#license)
 
@@ -53,6 +55,10 @@ To run any example, use the following command:
 ```bash
 python unicorn_brainflow.py
 ```
+
+## Examples
+The [examples](examples) folder contains single runnable scripts that demonstrate how to handle data collected
+using g.tec hardware.
 
 ## Notebooks
 The [notebooks](notebooks) folder contains some examples on how to use the utilities provided in this repository. You 
