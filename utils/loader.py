@@ -42,11 +42,11 @@ def convert_to_mne(eeg, trigger, fs, chs, rescale=1e6, recompute=False):
     y = trigger[trigger != 0]
 
     # Create the stimuli channel
-    stim_data = np.zeros((1, this_rec.n_times))
+    stim_data = np.ones((1, this_rec.n_times)) if recompute else np.zeros((1, this_rec.n_times))
 
     # MNE works with absolute values of labels so -1 and +1 would result in only one kind of event
-    # that's why we add 2 and obtain 1 and 3 as label values
-    stim_data[0, pos] = (y + 2) if recompute else y
+    # that's why we add 1 and obtain 1 and 2 as label values
+    stim_data[0, pos] = (y + 1) if recompute else y
 
     stim_raw = RawArray(stim_data, create_info(['STI'], this_rec.info['sfreq'], ch_types=['stim']))
 
