@@ -8,14 +8,14 @@ unicorn_channels = ["Fz", "C3", "Cz", "C4", "Pz", "PO7", "Oz", "PO8"]
 unicorn_fs = 250
 
 
-def load_data(path, header, fs, skiprows=5):
+def load_data(path, header, fs, names=unicorn_channels, skiprows=5):
     if header:
         df = pd.read_csv(path,
-                         names=unicorn_channels + ["trigger", "id", "target", "nontarget", "trial", "islast"],
+                         names=names + ["trigger", "id", "target", "nontarget", "trial", "islast"],
                          skiprows=skiprows * fs)
         trigger = np.array(df.id)
     else:
-        df = pd.read_csv(path, names=unicorn_channels + ["STI"], skiprows=skiprows * fs)
+        df = pd.read_csv(path, names=names + ["STI"], skiprows=skiprows * fs)
         trigger = np.array(df.STI)
     eeg = df.iloc[:, 0:len(unicorn_channels)].to_numpy()
     return eeg, trigger, df
