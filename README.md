@@ -1,9 +1,12 @@
-# Unicorn Python Essentials Toolkit
-A collection of utilities for interfacing with g.tec Unicorn devices series, load and plot data.
+# EEG Python Essentials Toolkit
+A collection of utilities for interfacing with consumer EEG devices.
 Complete with examples to analyse EEG data using the library MNE and to perform classification tasks using scikit-learn.
+Includes an EEG Streamer app to plot and save data in real-time.
+
 
 ## Table of Contents
 
+- [Supported Devices](#supported-devices)
 - [Getting Started](#getting-started)
   - [Prerequisites](#prerequisites)
   - [Installation](#installation)
@@ -12,6 +15,11 @@ Complete with examples to analyse EEG data using the library MNE and to perform 
 - [Notebooks](#notebooks)
 - [Contributing](#contributing)
 - [License](#license)
+
+## Supported Devices
+- g.tec Unicorn
+- Enophones
+- (Coming Soon) Emotiv Epoc
 
 ## Getting Started
 
