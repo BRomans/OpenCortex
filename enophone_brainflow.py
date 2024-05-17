@@ -76,7 +76,7 @@ class Graph:
 
     def update(self):
         self.board_shim.insert_marker(1)
-        data = self.board_shim.get_board_data()
+        data = self.board_shim.get_current_board_data(self.num_points)
         for count, channel in enumerate(self.eeg_channels):
             # plot timeseries
             DataFilter.detrend(data[channel], DetrendOperations.CONSTANT.value)
