@@ -1,22 +1,21 @@
 import re
 import time
-
 import bluetooth
 import argparse
 import matplotlib
-import pyqtgraph as pg
-from PyQt5 import QtWidgets, QtCore
-from brainflow.board_shim import BoardShim, BrainFlowInputParams, BoardIds
-from brainflow.data_filter import DataFilter, FilterTypes, DetrendOperations
 import numpy as np
 import logging
+import pyqtgraph as pg
+from PyQt5 import QtWidgets, QtCore
+from utils.layouts import layouts
+from pyqtgraph import ScatterPlotItem, mkBrush
+from brainflow.board_shim import BoardShim, BrainFlowInputParams, BoardIds
+from brainflow.data_filter import DataFilter, FilterTypes, DetrendOperations
 
 matplotlib.use("Qt5Agg")
 
-layouts = {
-    BoardIds.UNICORN_BOARD.value: ["Fz", "C3", "Cz", "C4", "Pz", "PO7", "Oz", "PO8"],
-    BoardIds.ENOPHONE_BOARD.value: ["A1", "C3", "C4", "A2"],
-}
+# Color codes for matplotlib
+colors = ["blue", "green", "yellow", "purple", "orange", "pink", "brown", "gray", "cyan", "magenta", ]
 
 
 def retrieve_unicorn_devices():
@@ -25,23 +24,16 @@ def retrieve_unicorn_devices():
     return list(unicorn_devices)
 
 
-def write_eno_header(file):
-    file.write('Sample\t')
-    for channel in layouts[BoardIds.ENOPHONE_BOARD.value]:
-        file.write(str(channel) + '\t')
-    file.write('Time\tTrigger\n')
-
-
-def write_unicorn_header(file):
-    for channel in layouts[BoardIds.UNICORN_BOARD.value]:
-        file.write(str(channel) + '\t')
-    file.write(["trigger\tid\ttarget\tnontarget\ttrial\tislast\n"])
+def write_header(file, board_id):
+    for column in layouts[board_id]["header"]:
+        file.write(str(column) + '\t')
+    file.write('\n')
 
 
 class Streamer:
 
     def __init__(self, board, params, plot=True, save_data=True, window_size=1, update_speed_ms=1000):
-        time.sleep(1) # Wait for the board to be ready
+        time.sleep(1)  # Wait for the board to be ready
         self.params = params
         logging.info("Searching for devices...")
         self.board = board
@@ -49,6 +41,7 @@ class Streamer:
         self.eeg_channels = BoardShim.get_eeg_channels(self.board_id)
         self.sampling_rate = BoardShim.get_sampling_rate(self.board_id)
         self.sample_counter = 0
+        self.color_thresholds = [(-150, -50, 'yellow'), (-50, 50, 'green'), (50, 150, 'yellow')]
         self.update_speed_ms = update_speed_ms
         self.window_size = window_size
         self.plot = plot
@@ -59,12 +52,9 @@ class Streamer:
 
         if save_data:
             # Open CSV file
-            self.file = open('session.csv', 'w')
-            # Write header taking elements from the list of EEG channels
-            if self.board_id == BoardIds.ENOPHONE_BOARD.value:
-                write_eno_header(self.file)
-            if self.board_id == BoardIds.UNICORN_BOARD.value:
-                write_unicorn_header(self.file)
+            with open('session.csv', 'w') as self.file:
+                # Write header taking elements from the list of EEG channels
+                write_header(self.file, self.board_id)
 
         if plot:
             # Create a window
@@ -72,6 +62,7 @@ class Streamer:
             self.win.setWindowTitle('EEG Plot')
             self.win.show()
             self._init_timeseries()
+            self.create_buttons()
 
         # Start the PyQt event loop
         timer = QtCore.QTimer()
@@ -79,24 +70,66 @@ class Streamer:
         timer.start(self.update_speed_ms)
         self.app.exec_()
 
+    def create_buttons(self):
+        # Button to write trigger and input box to specify the trigger value
+        self.input_box = QtWidgets.QLineEdit()
+        self.input_box.setFixedWidth(100)  # Set a fixed width for the input box
+        self.input_box.setPlaceholderText('Trigger value')
+
+        self.trigger_button = QtWidgets.QPushButton('Send Trigger')
+        self.trigger_button.setFixedWidth(100)  # Set a fixed width for the button
+        self.trigger_button.clicked.connect(lambda: self.write_trigger(int(self.input_box.text())))
+
+        # Create a layout for the button and input box
+        button_layout = QtWidgets.QHBoxLayout()
+        button_layout.addStretch(1)  # Add a stretchable space to push buttons to the right
+        button_layout.addWidget(self.trigger_button)
+        button_layout.addWidget(self.input_box)
+
+        # Create a widget to contain the layout
+        button_widget = QtWidgets.QWidget()
+        button_widget.setLayout(button_layout)
+
+        # Create a layout for the main window
+        main_layout = QtWidgets.QVBoxLayout()
+        main_layout.addWidget(button_widget,
+                              alignment=QtCore.Qt.AlignRight | QtCore.Qt.AlignBottom)  # Align to bottom right
+
+        # Set the main layout for the window
+        self.win.setLayout(main_layout)
+
     def _init_timeseries(self):
-        color_thresholds = [(-150, -50, 'yellow'), (-50, 50, 'green'), (50, 150, 'yellow')]
         self.plots = list()
         self.curves = list()
+        self.quality_indicators = []
         ylim = (-500, 500)
-        for i, channel_name in enumerate(self.eeg_channels):
-            p = self.win.addPlot(row=i, col=0)
+
+        for i, channel in enumerate(self.eeg_channels):
+            if i < len(self.eeg_channels) / 2:
+                row = i
+                col = 0
+            else:
+                row = i - len(self.eeg_channels) / 2
+                col = 1
+            p = self.win.addPlot(row=int(row), col=col)
+            # Increase size of the plot
             p.showAxis('left', True)
             p.setMenuEnabled('left', False)
-            p.showAxis('bottom', True)
+            p.showAxis('bottom', False)
             p.setMenuEnabled('bottom', False)
-            p.setYRange(*ylim)
-            p.setTitle(layouts[self.board_id][i])  # Set title to channel name for each plot
-            p.setLabel('left', text='Amplitude (uV)')  # Label for y-axis
+            # p.setYRange(*ylim)
+            p.setTitle(layouts[self.board_id]["channels"][i])  # Set title to channel name for each plot
+            p.setLabel('left', text='Amplitude (uV) ')  # Label for y-axis
             p.setLabel('bottom', text='Time (s)')  # Label for x-axis
             self.plots.append(p)
-            curve = p.plot(pen='y')  # Set a specific color for each curve
+            curve = p.plot(pen=colors[i])  # Set a specific color for each curve
             self.curves.append(curve)
+
+            # Create a scatter plot item for the quality indicator
+            scatter = ScatterPlotItem(size=20, brush=mkBrush('green'))
+            p.addItem(scatter)
+            self.quality_indicators.append(scatter)
+
         # plot trigger channel
         p = self.win.addPlot(row=len(self.eeg_channels), col=0)
         p.showAxis('left', True)
@@ -108,7 +141,7 @@ class Streamer:
         p.setLabel('left', text='Trigger')
         p.setLabel('bottom', text='Time (s)')
         self.plots.append(p)
-        curve = p.plot(pen='y')
+        curve = p.plot(pen='red')
         self.curves.append(curve)
 
     def update(self):
@@ -121,25 +154,62 @@ class Streamer:
         logging.info(f"Pulling sample {self.sample_counter}: {data.shape}")
         if self.plot:
             for count, channel in enumerate(self.eeg_channels):
+                ch_data = data[channel]
                 # plot timeseries
-                DataFilter.detrend(data[channel], DetrendOperations.CONSTANT.value)
-                DataFilter.perform_bandpass(data[channel], self.sampling_rate, 3.0, 45.0, 2,
+                DataFilter.detrend(ch_data, DetrendOperations.CONSTANT.value)
+                DataFilter.perform_bandpass(ch_data, self.sampling_rate, 3.0, 45.0, 4,
                                             FilterTypes.BUTTERWORTH_ZERO_PHASE, 0)
-                DataFilter.perform_bandstop(data[channel], self.sampling_rate, 48.0, 52.0, 2,
+                DataFilter.perform_bandstop(ch_data, self.sampling_rate, 48.0, 52.0, 4,
                                             FilterTypes.BUTTERWORTH_ZERO_PHASE, 0)
-                DataFilter.perform_bandstop(data[channel], self.sampling_rate, 58.0, 62.0, 2,
+                DataFilter.perform_bandstop(ch_data, self.sampling_rate, 58.0, 62.0, 4,
                                             FilterTypes.BUTTERWORTH_ZERO_PHASE, 0)
-                self.curves[count].setData(data[channel].tolist())
+
+                self.curves[count].setData(ch_data)
+                # Rescale the plot
+                self.plots[count].setYRange(np.min(ch_data), np.max(ch_data))
+
             # plot trigger channel
             trigger = data[-1]
             self.curves[-1].setData(trigger.tolist())
             self.app.processEvents()
         if self.save_data:
-            DataFilter.write_file(data, 'session.csv', 'a')
+            if self.board_id == BoardIds.UNICORN_BOARD:
+                DataFilter.write_file(data, 'session.csv', 'a')
+            else:
+                DataFilter.write_file(data, 'session.csv', 'a')
             self.sample_counter += 1
+        self.update_quality_indicators(data)
 
     def write_trigger(self, trigger=1):
         self.board.insert_marker(trigger)
+        logging.info(f"Trigger {trigger} written at {time.time()}")
+
+    def update_quality_indicators(self, sample):
+        eeg_start = layouts[self.board_id]["eeg_start"]
+        eeg_end = layouts[self.board_id]["eeg_end"]
+        eeg = sample[eeg_start:eeg_end]
+        amplitudes = []
+        q_colors = []
+        for i in range(len(eeg)):
+            amplitude_data = eeg[i]  # get the data for the i-th channel
+            avg_amplitude = np.percentile(amplitude_data, 75)  # Calculate average amplitude
+            amplitudes.append(avg_amplitude)
+            # Determine the color based on the average amplitude
+            color = 'red'
+            for low, high, color_name in self.color_thresholds:
+                if low <= avg_amplitude <= high:
+                    color = color_name
+                    break
+            q_colors.append(color)
+            # Update the scatter plot item with the new color
+            self.quality_indicators[i].setBrush(mkBrush(color))
+            self.quality_indicators[i].setData([-1], [0])  # Position the circle at (0, 0)
+        logging.info(f"Qualities: {amplitudes} {q_colors}")
+
+    def get_channel_amplitude(self, sample, channel):
+        channel_data = sample[channel]
+        return
+
 
 def main():
     BoardShim.enable_dev_board_logger()
@@ -177,12 +247,13 @@ def main():
     params.file = args.file
     params.master_board = args.master_board
     if args.board_id == BoardIds.UNICORN_BOARD:
-        args.params.serial_number = retrieve_unicorn_devices()[0][1]
+        args.serial_number = retrieve_unicorn_devices()[2][1]
+    params.serial_number = args.serial_number
     board_shim = BoardShim(args.board_id, params)
     try:
         board_shim.prepare_session()
         board_shim.start_stream(streamer_params=args.streamer_params)
-        Streamer(board_shim, params=params, plot=True, save_data=True, window_size=1)
+        Streamer(board_shim, params=params, plot=True, save_data=True, window_size=1, update_speed_ms=1000)
     except BaseException:
         logging.warning('Exception', exc_info=True)
     finally:
