@@ -5,19 +5,20 @@ from sklearn.model_selection import cross_val_predict
 import numpy as np
 
 
-def plot_feature_vector(x, x_flat, epoch=1):
+def plot_feature_vector(x, x_flat, seg_len=200, epoch=1):
     """
     Plot the feature vector and the original signal
+    :param seg_len: length of the segment
     :param x: numpy array of shape (n_epochs, n_channels, n_samples)
     :param x_flat: numpy array of shape (n_epochs, n_channels * n_samples)
     :param epoch: int, index of the epoch to plot
     """
     plt.plot(x[epoch, 0], label='Channel 1', color='blue')
-    offset = np.arange(200, 400)
+    offset = np.arange(seg_len, 2*seg_len)
     plt.plot(offset, x[epoch, 1], label='Channel 2', color='red')
-    offset = np.arange(400, 600)
+    offset = np.arange(2*seg_len, 3*seg_len)
     plt.plot(offset, x[epoch, 2], label='Channel 3', color='orange')
-    offset = np.arange(600, 800)
+    offset = np.arange(3*seg_len, 4*seg_len)
     plt.plot(offset, x[epoch, 3], label='Channel 4', color='purple')
     plt.plot(x_flat[epoch, :], label='Feature Vector', color='green', linestyle='dotted', linewidth=2)
     plt.legend(loc='upper right')
