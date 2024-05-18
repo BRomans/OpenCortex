@@ -13,6 +13,9 @@ Includes an EEG Streamer app to plot and save data in real-time.
 - [Usage](#usage)
 - [Examples](#examples)
 - [Notebooks](#notebooks)
+- [Building](#building)
+    - [Wheel Distribution](#wheel-distribution)
+    - [Source Distribution](#source-distribution)
 - [Contributing](#contributing)
 - [License](#license)
 
@@ -71,6 +74,29 @@ using g.tec hardware.
 ## Notebooks
 The [notebooks](notebooks) folder contains some examples on how to use the utilities provided in this repository. You 
 can run the notebooks using Jupyter, Jupyter Lab or Google Colab.
+
+## Building
+This project can be built as pip package using the following commands
+### Wheel Distribution
+To build a wheel distribution, run the following command:
+```bash
+python setup.py sdist bdist_wheel
+```
+Copy the content of the `dist` folder to the desired location and install the package using pip:
+```bash
+pip install <package_name>.whl
+``` 
+
+### Source Distribution
+Alternatively, you if you want to build a source distribution, run the following command:
+```bash
+python setup.py sdist
+```
+Copy the content of the `dist` folder to the desired location and install the package using pip:
+```bash
+pip install <package_name>.tar.gz
+```
+
 
 
 ## Contributing

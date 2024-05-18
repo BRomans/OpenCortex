@@ -1,23 +1,27 @@
 import pandas as pd
 import numpy as np
+from brainflow import BoardIds
 from mne.io import RawArray
 from mne import create_info
 from mne.channels import make_standard_montage
+from utils.layouts import layouts
 
 unicorn_channels = ["Fz", "C3", "Cz", "C4", "Pz", "PO7", "Oz", "PO8"]
-unicorn_fs = 250
 
 
-def load_data(path, header, fs, names=unicorn_channels, skiprows=5):
-    if header:
-        df = pd.read_csv(path,
-                         names=names + ["trigger", "id", "target", "nontarget", "trial", "islast"],
-                         skiprows=skiprows * fs)
+def load_data(path, header, fs, board=BoardIds.UNICORN_BOARD,  skiprows=5, delimiter=','):
+    start_eeg = layouts[board]["eeg_start"]
+    end_eeg = layouts[board]["eeg_end"]
+    if header == "unity":
+        df = pd.read_csv(path, names=layouts[board][header], skiprows=skiprows * fs, delimiter=delimiter)
         trigger = np.array(df.id)
-    else:
-        df = pd.read_csv(path, names=names + ["STI"], skiprows=skiprows * fs)
+    if header == "uni_slim":
+        df = pd.read_csv(path, names=layouts[board]["slim"], skiprows=skiprows * fs, delimiter=delimiter)
         trigger = np.array(df.STI)
-    eeg = df.iloc[:, 0:len(unicorn_channels)].to_numpy()
+    else:
+        df = pd.read_csv(path, names=layouts[board]["header"], skiprows=skiprows * fs, delimiter=delimiter)
+        trigger = np.array(df.Trigger)
+    eeg = df.iloc[:, start_eeg:end_eeg].to_numpy()
     return eeg, trigger, df
 
 
