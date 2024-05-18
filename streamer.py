@@ -14,8 +14,9 @@ from brainflow.data_filter import DataFilter, FilterTypes, DetrendOperations
 
 matplotlib.use("Qt5Agg")
 
-# Color codes for matplotlib
-colors = ["blue", "green", "yellow", "purple", "orange", "pink", "brown", "gray", "cyan", "magenta", ]
+# 16 Color ascii codes for the 16 EEG channels
+colors = ["blue", "green", "yellow", "purple", "orange", "pink", "brown", "gray",
+          "cyan", "magenta", "lime", "teal", "lavender", "turquoise", "maroon", "olive"]
 
 
 def retrieve_unicorn_devices():
@@ -102,8 +103,6 @@ class Streamer:
         self.plots = list()
         self.curves = list()
         self.quality_indicators = []
-        ylim = (-500, 500)
-
         for i, channel in enumerate(self.eeg_channels):
             if i < len(self.eeg_channels) / 2:
                 row = i
@@ -117,7 +116,7 @@ class Streamer:
             p.setMenuEnabled('left', False)
             p.showAxis('bottom', False)
             p.setMenuEnabled('bottom', False)
-            # p.setYRange(*ylim)
+            p.setMinimumWidth(400)
             p.setTitle(layouts[self.board_id]["channels"][i])  # Set title to channel name for each plot
             p.setLabel('left', text='Amplitude (uV) ')  # Label for y-axis
             p.setLabel('bottom', text='Time (s)')  # Label for x-axis
@@ -192,23 +191,22 @@ class Streamer:
         q_colors = []
         for i in range(len(eeg)):
             amplitude_data = eeg[i]  # get the data for the i-th channel
-            avg_amplitude = np.percentile(amplitude_data, 75)  # Calculate average amplitude
-            amplitudes.append(avg_amplitude)
-            # Determine the color based on the average amplitude
-            color = 'red'
-            for low, high, color_name in self.color_thresholds:
-                if low <= avg_amplitude <= high:
-                    color = color_name
-                    break
+            color, amplitude = self.get_channel_quality(amplitude_data)
             q_colors.append(color)
+            amplitudes.append(np.round(amplitude, 2))
             # Update the scatter plot item with the new color
             self.quality_indicators[i].setBrush(mkBrush(color))
             self.quality_indicators[i].setData([-1], [0])  # Position the circle at (0, 0)
         logging.info(f"Qualities: {amplitudes} {q_colors}")
 
-    def get_channel_amplitude(self, sample, channel):
-        channel_data = sample[channel]
-        return
+    def get_channel_quality(self, eeg, threshold=75):
+        amplitude = np.percentile(eeg, threshold)
+        color = 'red'
+        for low, high, color_name in self.color_thresholds:
+            if low <= amplitude <= high:
+                color = color_name
+                break
+        return color, amplitude
 
 
 def main():
@@ -229,7 +227,7 @@ def main():
     parser.add_argument('--streamer-params', type=str, help='streamer params', required=False, default='')
     parser.add_argument('--serial-number', type=str, help='serial number', required=False, default='')
     parser.add_argument('--board-id', type=int, help='board id, check docs to get a list of supported boards',
-                        required=False, default=BoardIds.ENOPHONE_BOARD)
+                        required=False, default=BoardIds.SYNTHETIC_BOARD)
     parser.add_argument('--file', type=str, help='file', required=False, default='')
     parser.add_argument('--master-board', type=int, help='master board id for streaming and playback boards',
                         required=False, default=BoardIds.NO_BOARD)
