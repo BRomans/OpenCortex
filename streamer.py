@@ -6,6 +6,8 @@ import matplotlib
 import numpy as np
 import logging
 import pyqtgraph as pg
+import os
+import pylsl
 from PyQt5 import QtWidgets, QtCore
 from utils.layouts import layouts
 from pyqtgraph import ScatterPlotItem, mkBrush
@@ -22,6 +24,7 @@ colors = ["blue", "green", "yellow", "purple", "orange", "pink", "brown", "gray"
 def retrieve_unicorn_devices():
     saved_devices = bluetooth.discover_devices(duration=1, lookup_names=True, lookup_class=True)
     unicorn_devices = filter(lambda x: re.search(r'UN-\d{4}.\d{2}.\d{2}', x[1]), saved_devices)
+    logging.info(f"Found Unicorns: {list(unicorn_devices)} ")
     return list(unicorn_devices)
 
 
@@ -34,8 +37,10 @@ def write_header(file, board_id):
 class Streamer:
 
     def __init__(self, board, params, plot=True, save_data=True, window_size=1, update_speed_ms=1000):
-        time.sleep(1)  # Wait for the board to be ready
+        time.sleep(window_size)  # Wait for the board to be ready
+        self.is_streaming = True
         self.params = params
+        self.initial_ts = time.time()
         logging.info("Searching for devices...")
         self.board = board
         self.board_id = self.board.get_board_id()
@@ -51,12 +56,6 @@ class Streamer:
         logging.info(f"Connected to {self.board.get_device_name(self.board.get_board_id())}")
         self.app = QtWidgets.QApplication([])
 
-        if save_data:
-            # Open CSV file
-            with open('session.csv', 'w') as self.file:
-                # Write header taking elements from the list of EEG channels
-                write_header(self.file, self.board_id)
-
         if plot:
             # Create a window
             self.win = pg.GraphicsLayoutWidget(title='EEG Plot', size=(1200, 800))
@@ -69,6 +68,7 @@ class Streamer:
         timer = QtCore.QTimer()
         timer.timeout.connect(self.update)
         timer.start(self.update_speed_ms)
+        self.start_lsl_stream()
         self.app.exec_()
 
     def create_buttons(self):
@@ -81,15 +81,68 @@ class Streamer:
         self.trigger_button.setFixedWidth(100)  # Set a fixed width for the button
         self.trigger_button.clicked.connect(lambda: self.write_trigger(int(self.input_box.text())))
 
+        # Start / Stop buttons
+        self.start_button = QtWidgets.QPushButton('Stop')
+        self.start_button.setFixedWidth(100)
+        self.start_button.clicked.connect(lambda: self.toggle_stream())
+
+        # Save data checkbox
+        self.save_data_checkbox = QtWidgets.QCheckBox('Save data to file')
+        self.save_data_checkbox.setStyleSheet('color: white')
+        self.save_data_checkbox.setChecked(self.save_data)
+
+        # Input box to configure Bandpass filter with checkbox to enable/disable it
+        self.bandpass_checkbox = QtWidgets.QCheckBox('Bandpass filter frequencies (Hz)')
+        self.bandpass_checkbox.setStyleSheet('color: white')
+        self.bandpass_box_low = QtWidgets.QLineEdit()
+        self.bandpass_box_low.setPlaceholderText('0')
+        self.bandpass_box_low.setText('1')
+        self.bandpass_box_low.setFixedWidth(25)
+        self.bandpass_box_high = QtWidgets.QLineEdit()
+        self.bandpass_box_high.setPlaceholderText('0')
+        self.bandpass_box_high.setText('40')
+        self.bandpass_box_high.setFixedWidth(25)
+
+        # Input box to configure Notch filter with checkbox to enable/disable it and white label
+        self.notch_checkbox = QtWidgets.QCheckBox('Notch filter frequencies (Hz)')
+        self.notch_checkbox.setStyleSheet('color: white')
+        self.notch_box = QtWidgets.QLineEdit()
+        self.notch_box.setFixedWidth(56)  # Set a fixed width for the input box
+        self.notch_box.setPlaceholderText('0, 0')
+        self.notch_box.setText('50, 60')
+
+        # Create a layout for buttons
+        start_save_layout = QtWidgets.QHBoxLayout()
+        start_save_layout.addWidget(self.save_data_checkbox)
+        start_save_layout.addWidget(self.start_button)
+
+        # Create a layout for the bandpass filter
+        bandpass_layout = QtWidgets.QHBoxLayout()
+        bandpass_layout.addWidget(self.bandpass_checkbox)
+        bandpass_layout.addWidget(self.bandpass_box_low)
+        bandpass_layout.addWidget(self.bandpass_box_high)
+
+        # Create a layout for the notch filter
+        notch_layout = QtWidgets.QHBoxLayout()
+        notch_layout.addWidget(self.notch_checkbox)
+        notch_layout.addWidget(self.notch_box)
+
         # Create a layout for the button and input box
         button_layout = QtWidgets.QHBoxLayout()
         button_layout.addStretch(1)  # Add a stretchable space to push buttons to the right
         button_layout.addWidget(self.trigger_button)
         button_layout.addWidget(self.input_box)
 
+        # Create a vertical layout to contain the notch filter and the button layout
+        vertical_layout = QtWidgets.QVBoxLayout()
+        vertical_layout.addLayout(bandpass_layout)
+        vertical_layout.addLayout(notch_layout)
+        vertical_layout.addLayout(button_layout)
+        vertical_layout.addLayout(start_save_layout)
+
         # Create a widget to contain the layout
         button_widget = QtWidgets.QWidget()
-        button_widget.setLayout(button_layout)
+        button_widget.setLayout(vertical_layout)
 
         # Create a layout for the main window
         main_layout = QtWidgets.QVBoxLayout()
@@ -144,40 +197,101 @@ class Streamer:
         self.curves.append(curve)
 
     def update(self):
-        if self.window_size == 0:
-            raise ValueError("Window size cannot be zero")
-        if self.window_size == 1:
-            data = self.board.get_board_data(num_samples=self.num_points)
-        else:
+        if self.is_streaming:
+            if self.window_size == 0:
+                raise ValueError("Window size cannot be zero")
             data = self.board.get_current_board_data(num_samples=self.num_points)
-        logging.info(f"Pulling sample {self.sample_counter}: {data.shape}")
-        if self.plot:
-            for count, channel in enumerate(self.eeg_channels):
-                ch_data = data[channel]
-                # plot timeseries
-                DataFilter.detrend(ch_data, DetrendOperations.CONSTANT.value)
-                DataFilter.perform_bandpass(ch_data, self.sampling_rate, 3.0, 45.0, 4,
-                                            FilterTypes.BUTTERWORTH_ZERO_PHASE, 0)
-                DataFilter.perform_bandstop(ch_data, self.sampling_rate, 48.0, 52.0, 4,
-                                            FilterTypes.BUTTERWORTH_ZERO_PHASE, 0)
-                DataFilter.perform_bandstop(ch_data, self.sampling_rate, 58.0, 62.0, 4,
-                                            FilterTypes.BUTTERWORTH_ZERO_PHASE, 0)
-
-                self.curves[count].setData(ch_data)
-                # Rescale the plot
-                self.plots[count].setYRange(np.min(ch_data), np.max(ch_data))
-
-            # plot trigger channel
-            trigger = data[-1]
-            self.curves[-1].setData(trigger.tolist())
-            self.app.processEvents()
-        if self.save_data:
-            if self.board_id == BoardIds.UNICORN_BOARD:
-                DataFilter.write_file(data, 'session.csv', 'a')
-            else:
-                DataFilter.write_file(data, 'session.csv', 'a')
+            self.push_lsl_chunk(data)
             self.sample_counter += 1
-        self.update_quality_indicators(data)
+            logging.info(f"Pulling sample {self.sample_counter}: {data.shape}")
+            if self.plot:
+                for count, channel in enumerate(self.eeg_channels):
+                    ch_data = data[channel]
+                    # plot timeseries
+                    DataFilter.detrend(ch_data, DetrendOperations.CONSTANT.value)
+                    try:
+                        if self.bandpass_checkbox.isChecked():
+                            low = float(self.bandpass_box_low.text())
+                            high = float(self.bandpass_box_high.text())
+                            DataFilter.perform_bandpass(ch_data, self.sampling_rate, low, high, 4,
+                                                        FilterTypes.BUTTERWORTH_ZERO_PHASE, 0)
+                    except ValueError:
+                        logging.error("Invalid frequency value")
+                    try:
+                        if self.notch_checkbox.isChecked():
+                            freqs = self.notch_box.text().split(',')
+                            for freq in freqs:
+                                start_freq = float(freq) - 2.0
+                                end_freq = float(freq) + 2.0
+                                DataFilter.perform_bandstop(ch_data, self.sampling_rate, start_freq, end_freq, 4,
+                                                            FilterTypes.BUTTERWORTH_ZERO_PHASE, 0)
+                    except ValueError:
+                        logging.error("Invalid frequency value")
+                    self.curves[count].setData(ch_data)
+                    # Rescale the plot
+                    self.plots[count].setYRange(np.min(ch_data), np.max(ch_data))
+
+                # plot trigger channel
+                trigger = data[-1]
+                self.curves[-1].setData(trigger.tolist())
+                self.app.processEvents()
+            self.update_quality_indicators(data)
+
+    def start_lsl_stream(self, stream_name='myeeg', type='EEG'):
+        info = pylsl.StreamInfo(name=stream_name, type=type, channel_count=len(self.eeg_channels) + 1,
+                                nominal_srate=self.sampling_rate, channel_format='float32',
+                                source_id=self.board.get_device_name(self.board_id))
+        # Add channel names
+        chs = info.desc().append_child("channels")
+        for ch in layouts[self.board_id]["channels"]:
+            chs.append_child("channel").append_child_value("name", ch)
+        chs.append_child("channel").append_child_value("name", "Trigger")
+        self.outlet = pylsl.StreamOutlet(info)
+
+    def push_lsl_chunk(self, data):
+        # Get EEG and Trigger from data and push it to LSL
+        start_eeg = layouts[self.board_id]["eeg_start"]
+        end_eeg = layouts[self.board_id]["eeg_end"]
+        eeg = data[start_eeg:end_eeg]
+        trigger = data[-1]
+        # Horizontal stack EEG and Trigger
+        eeg = np.concatenate((eeg, trigger.reshape(1, len(trigger))), axis=0)
+        ts_channel = self.board.get_timestamp_channel(self.board_id)
+        ts = data[ts_channel]
+        ts_to_lsl_offset = time.time() - pylsl.local_clock()
+        # Get only the seconds part of the timestamp
+        ts = ts - ts_to_lsl_offset
+        self.outlet.push_chunk(eeg.T.tolist(), ts)
+        logging.info(f"Pushed sample {self.sample_counter} to LSL")
+
+    def push_lsl_packet(self, data):
+        # Get EEG and Trigger from data and push it to LSL
+        start_eeg = layouts[self.board_id]["eeg_start"]
+        end_eeg = layouts[self.board_id]["eeg_end"]
+        eeg = data[start_eeg:end_eeg]
+        trigger = data[-1]
+        # Horizontal stack EEG and Trigger
+        eeg = np.concatenate((eeg, trigger.reshape(1, len(trigger))), axis=0)
+        ts_channel = self.board.get_timestamp_channel(self.board_id)
+        ts = data[ts_channel]
+        ts_to_lsl_offset = time.time() - pylsl.local_clock()
+        ts = ts - ts_to_lsl_offset
+        for i in range(eeg.shape[1]):
+            sample = eeg[:, i]
+            self.outlet.push_sample(sample.tolist(), ts[i])
+
+    def export_file(self, filename=None, folder='export', format='csv'):
+        # Compose the file name using the board name and the current time
+        if filename is None:
+            filename = f"{self.board.get_device_name(self.board_id)}_{time.strftime('%Y-%m-%d_%H-%M-%S')}"
+        path = os.path.join(folder, filename + '.' + format)
+        if not os.path.exists(folder):
+            os.makedirs(folder)
+        with open(path, 'w') as self.file:
+            write_header(self.file, self.board_id)
+            data = self.board.get_board_data()
+            if format == 'csv':
+                DataFilter.write_file(data, path, 'a')
 
     def write_trigger(self, trigger=1):
         self.board.insert_marker(trigger)
@@ -207,6 +321,16 @@ class Streamer:
                 color = color_name
                 break
         return color, amplitude
+
+    def toggle_stream(self):
+        if self.is_streaming:
+            self.board.stop_stream()
+            self.start_button.setText('Start')
+            self.is_streaming = False
+        else:
+            self.board.start_stream()
+            self.start_button.setText('Stop')
+            self.is_streaming = True
 
 
 def main():
@@ -245,21 +369,25 @@ def main():
     params.file = args.file
     params.master_board = args.master_board
     if args.board_id == BoardIds.UNICORN_BOARD:
-        args.serial_number = retrieve_unicorn_devices()[2][1]
+        args.serial_number = retrieve_unicorn_devices()[0][1]
     params.serial_number = args.serial_number
     board_shim = BoardShim(args.board_id, params)
     try:
         board_shim.prepare_session()
         board_shim.start_stream(streamer_params=args.streamer_params)
-        Streamer(board_shim, params=params, plot=True, save_data=True, window_size=1, update_speed_ms=1000)
+        streamer = Streamer(board_shim, params=params, plot=True, save_data=True, window_size=4, update_speed_ms=250)
     except BaseException:
         logging.warning('Exception', exc_info=True)
     finally:
-
         logging.info('End')
         if board_shim.is_prepared():
             logging.info('Releasing session')
-            board_shim.stop_stream()
+            try:
+                if streamer.save_data_checkbox.isChecked():
+                    streamer.export_file('session')
+                board_shim.stop_stream()
+            except BaseException:
+                logging.warning('Streaming has already been stopped')
             board_shim.release_session()
 
 
