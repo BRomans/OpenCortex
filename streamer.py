@@ -26,9 +26,9 @@ colors = ["blue", "green", "yellow", "purple", "orange", "pink", "brown", "gray"
 
 def retrieve_unicorn_devices():
     saved_devices = bluetooth.discover_devices(duration=1, lookup_names=True, lookup_class=True)
-    unicorn_devices = filter(lambda x: re.search(r'UN-\d{4}.\d{2}.\d{2}', x[1]), saved_devices)
-    logging.info(f"Found Unicorns: {list(unicorn_devices)} ")
-    return list(unicorn_devices)
+    unicorn_devices = list(filter(lambda x: re.search(r'UN-\d{4}.\d{2}.\d{2}', x[1]), saved_devices))
+    logging.info(f"Found Unicorns: {unicorn_devices} ")
+    return unicorn_devices
 
 
 def write_header(file, board_id):
@@ -38,7 +38,7 @@ def write_header(file, board_id):
 
 
 class LSLStreamThread(QThread):
-    new_sample = pyqtSignal(int, float)  # Signal to emit new sample data
+    new_sample = pyqtSignal(object, float)  # Signal to emit new sample data
 
     def run(self):
         # Resolve an LSL stream named 'MyStream'
@@ -51,6 +51,7 @@ class LSLStreamThread(QThread):
         while True:
             # Pull a new sample from the inlet
             marker, timestamp = inlet.pull_sample()
+            logging.info({"got %s at time %s" % (marker[0], timestamp)})
             # Emit the new sample data
             self.new_sample.emit(marker[0], timestamp)
 
@@ -384,6 +385,7 @@ def main():
     parser.add_argument('--file', type=str, help='file', required=False, default='')
     parser.add_argument('--master-board', type=int, help='master board id for streaming and playback boards',
                         required=False, default=BoardIds.NO_BOARD)
+    parser.add_argument('--unicorn-index', type=int, help='index of the unicorn device', required=False, default=0)
     args = parser.parse_args()
 
     params = BrainFlowInputParams()
@@ -398,13 +400,15 @@ def main():
     params.file = args.file
     params.master_board = args.master_board
     if args.board_id == BoardIds.UNICORN_BOARD:
-        args.serial_number = retrieve_unicorn_devices()[0][1]
+        unicorn_devices = retrieve_unicorn_devices()
+
+        args.serial_number = retrieve_unicorn_devices()[2][1]
     params.serial_number = args.serial_number
     board_shim = BoardShim(args.board_id, params)
     try:
         board_shim.prepare_session()
         board_shim.start_stream(streamer_params=args.streamer_params)
-        streamer = Streamer(board_shim, params=params, plot=True, save_data=True, window_size=4, update_speed_ms=250)
+        streamer = Streamer(board_shim, params=params, plot=True, save_data=True, window_size=10, update_speed_ms=80)
     except BaseException:
         logging.warning('Exception', exc_info=True)
     finally:
@@ -413,7 +417,7 @@ def main():
             logging.info('Releasing session')
             try:
                 if streamer.save_data_checkbox.isChecked():
-                    streamer.export_file('session')
+                    streamer.export_file()
                 board_shim.stop_stream()
                 streamer.lsl_thread.quit()
             except BaseException:
