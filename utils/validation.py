@@ -5,6 +5,8 @@ from sklearn.metrics import confusion_matrix
 from sklearn.model_selection import cross_val_predict, StratifiedKFold
 from sklearn.metrics import roc_curve, auc
 
+feat_colors = ['blue', 'red', 'orange', 'purple', 'gray', 'black', 'brown', 'pink']
+
 
 def plot_feature_vector(x, x_flat, seg_len=200, epoch=1):
     """
@@ -14,13 +16,10 @@ def plot_feature_vector(x, x_flat, seg_len=200, epoch=1):
     :param x_flat: numpy array of shape (n_epochs, n_channels * n_samples)
     :param epoch: int, index of the epoch to plot
     """
-    plt.plot(x[epoch, 0], label='Channel 1', color='blue')
-    offset = np.arange(seg_len, 2*seg_len)
-    plt.plot(offset, x[epoch, 1], label='Channel 2', color='red')
-    offset = np.arange(2*seg_len, 3*seg_len)
-    plt.plot(offset, x[epoch, 2], label='Channel 3', color='orange')
-    offset = np.arange(3*seg_len, 4*seg_len)
-    plt.plot(offset, x[epoch, 3], label='Channel 4', color='purple')
+    offset = np.arange(seg_len, seg_len)
+    for i in range(x.shape[1]):
+        offset = np.arange(i * seg_len, (i + 1) * seg_len)
+        plt.plot(offset, x[epoch, i], label='Channel ' + str(i + 1), color=feat_colors[i])
     plt.plot(x_flat[epoch, :], label='Feature Vector', color='green', linestyle='dotted', linewidth=2)
     plt.legend(loc='upper right')
     plt.xlim(0, 800)
