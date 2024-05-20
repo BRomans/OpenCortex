@@ -9,6 +9,9 @@ import pyqtgraph as pg
 import os
 import pylsl
 from PyQt5 import QtWidgets, QtCore
+from PyQt5.QtCore import QThread, pyqtSignal
+from pylsl import resolve_stream, StreamInlet
+
 from utils.layouts import layouts
 from pyqtgraph import ScatterPlotItem, mkBrush
 from brainflow.board_shim import BoardShim, BrainFlowInputParams, BoardIds
@@ -34,6 +37,24 @@ def write_header(file, board_id):
     file.write('\n')
 
 
+class LSLStreamThread(QThread):
+    new_sample = pyqtSignal(int, float)  # Signal to emit new sample data
+
+    def run(self):
+        # Resolve an LSL stream named 'MyStream'
+        logging.info("Looking for an LSL stream...")
+        streams = resolve_stream('type', 'Markers')
+
+        # Create a new inlet to read from the stream
+        inlet = StreamInlet(streams[0])
+
+        while True:
+            # Pull a new sample from the inlet
+            marker, timestamp = inlet.pull_sample()
+            # Emit the new sample data
+            self.new_sample.emit(marker[0], timestamp)
+
+
 class Streamer:
 
     def __init__(self, board, params, plot=True, save_data=True, window_size=1, update_speed_ms=1000):
@@ -56,6 +77,11 @@ class Streamer:
         logging.info(f"Connected to {self.board.get_device_name(self.board.get_board_id())}")
         self.app = QtWidgets.QApplication([])
 
+        logging.info("Looking for an LSL stream...")
+        self.lsl_thread = LSLStreamThread()
+        self.lsl_thread.new_sample.connect(self.write_trigger)
+        self.lsl_thread.start()
+
         if plot:
             # Create a window
             self.win = pg.GraphicsLayoutWidget(title='EEG Plot', size=(1200, 800))
@@ -68,7 +94,7 @@ class Streamer:
         timer = QtCore.QTimer()
         timer.timeout.connect(self.update)
         timer.start(self.update_speed_ms)
-        self.start_lsl_stream()
+        self.start_lsl_eeg_stream()
         self.app.exec_()
 
     def create_buttons(self):
@@ -237,7 +263,7 @@ class Streamer:
                 self.app.processEvents()
             self.update_quality_indicators(data)
 
-    def start_lsl_stream(self, stream_name='myeeg', type='EEG'):
+    def start_lsl_eeg_stream(self, stream_name='myeeg', type='EEG'):
         info = pylsl.StreamInfo(name=stream_name, type=type, channel_count=len(self.eeg_channels) + 1,
                                 nominal_srate=self.sampling_rate, channel_format='float32',
                                 source_id=self.board.get_device_name(self.board_id))
@@ -262,7 +288,7 @@ class Streamer:
         # Get only the seconds part of the timestamp
         ts = ts - ts_to_lsl_offset
         self.outlet.push_chunk(eeg.T.tolist(), ts)
-        logging.info(f"Pushed sample {self.sample_counter} to LSL")
+        logging.debug(f"Pushed sample {self.sample_counter} to LSL")
 
     def push_lsl_packet(self, data):
         # Get EEG and Trigger from data and push it to LSL
@@ -293,9 +319,12 @@ class Streamer:
             if format == 'csv':
                 DataFilter.write_file(data, path, 'a')
 
-    def write_trigger(self, trigger=1):
-        self.board.insert_marker(trigger)
-        logging.info(f"Trigger {trigger} written at {time.time()}")
+    def write_trigger(self, trigger=1, timestamp=0):
+        logging.info(f"Trigger {trigger} written at {timestamp}")
+        if timestamp == 0:
+            timestamp = time.time()
+        self.board.insert_marker(int(trigger))
+
 
     def update_quality_indicators(self, sample):
         eeg_start = layouts[self.board_id]["eeg_start"]
@@ -311,7 +340,7 @@ class Streamer:
             # Update the scatter plot item with the new color
             self.quality_indicators[i].setBrush(mkBrush(color))
             self.quality_indicators[i].setData([-1], [0])  # Position the circle at (0, 0)
-        logging.info(f"Qualities: {amplitudes} {q_colors}")
+        logging.debug(f"Qualities: {amplitudes} {q_colors}")
 
     def get_channel_quality(self, eeg, threshold=75):
         amplitude = np.percentile(eeg, threshold)
@@ -335,7 +364,7 @@ class Streamer:
 
 def main():
     BoardShim.enable_dev_board_logger()
-    logging.basicConfig(level=logging.DEBUG)
+    logging.basicConfig(level=logging.INFO)
 
     parser = argparse.ArgumentParser()
     # use docs to check which parameters are required for specific board, e.g. for Cyton - set serial port
@@ -386,6 +415,7 @@ def main():
                 if streamer.save_data_checkbox.isChecked():
                     streamer.export_file('session')
                 board_shim.stop_stream()
+                streamer.lsl_thread.quit()
             except BaseException:
                 logging.warning('Streaming has already been stopped')
             board_shim.release_session()
