@@ -6,8 +6,6 @@ from mne import create_info
 from mne.channels import make_standard_montage
 from utils.layouts import layouts
 
-unicorn_channels = ["Fz", "C3", "Cz", "C4", "Pz", "PO7", "Oz", "PO8"]
-
 
 def load_data(path, header, fs, board=BoardIds.UNICORN_BOARD,  skiprows=5, delimiter=','):
     start_eeg = layouts[board]["eeg_start"]
