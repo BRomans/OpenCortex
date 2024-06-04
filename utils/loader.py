@@ -23,7 +23,7 @@ def load_data(path, header, fs, board=BoardIds.UNICORN_BOARD,  skiprows=5, delim
     return eeg, trigger, df
 
 
-def convert_to_mne(eeg, trigger, fs, chs, rescale=1e6, recompute=False):
+def convert_to_mne(eeg, trigger, fs, chs, rescale=1e6, recompute=False, transpose=True):
     """
     Convert the data to MNE format
     :param eeg: numpy array of shape (n_samples, n_channels)
@@ -34,8 +34,8 @@ def convert_to_mne(eeg, trigger, fs, chs, rescale=1e6, recompute=False):
     :param recompute: whether if changing trigger numerical values or not to avoid Event "0"
     :return: MNE RawArray object
     """
-
-    this_rec = RawArray(eeg.T / rescale, create_info(chs, fs, ch_types='eeg'))
+    eeg = eeg.T if transpose else eeg
+    this_rec = RawArray(eeg / rescale, create_info(chs, fs, ch_types='eeg'))
 
     # Get event indexes where value is not 0, i.e. -1 or 1
     pos = np.nonzero(trigger)[0]

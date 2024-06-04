@@ -72,7 +72,6 @@ def main():
         selector = QtWidgets.QWidget()
         args.serial_number = QtWidgets.QInputDialog.getItem(selector, 'Connect EEG', 'Select device',
                                                             [device[1] for device in devices], 0, False)[0]
-        print(args.serial_number)
         args.board_id = retrieve_board_id(args.serial_number)
     except BaseException as e:
         logging.info('Impossible to connect device', e)
@@ -91,10 +90,7 @@ def main():
         if board_shim.is_prepared():
             logging.info('Releasing session')
             try:
-                if streamer.save_data_checkbox.isChecked():
-                    streamer.export_file()
-                board_shim.stop_stream()
-                streamer.lsl_thread.quit()
+                streamer.quit()
             except BaseException:
                 logging.warning('Streaming has already been stopped')
             board_shim.release_session()

@@ -2,12 +2,10 @@ from brainflow import BoardIds
 
 layouts = {
     BoardIds.SYNTHETIC_BOARD.value: {
-        "channels": ["channel_1", "channel_2", "channel_3", "channel_4", "channel_5", "channel_6", "channel_7",
-                     "channel_8", "channel_9", "channel_10", "channel_11", "channel_12", "channel_13", "channel_14",
-                     "channel_15", "channel_16"],
-        "header": ["channel_1", "channel_2", "channel_3", "channel_4", "channel_5", "channel_6", "channel_7",
-                   "channel_8", "channel_9", "channel_10", "channel_11", "channel_12", "channel_13", "channel_14",
-                   "channel_15", "channel_16", "Trigger"],
+        "channels": ["Fp1", "Fp2", "F7", "F3", "Fz", "F4", "F8", "T3",
+                     "C3", "Cz", "C4", "T4", "T5", "P3", "Pz", "P4"],
+        "header": ["Fp1", "Fp2", "F7", "F3", "Fz", "F4", "F8", "T3",
+                   "C3", "Cz", "C4", "T4", "T5", "P3", "Pz", "P4", "Trigger"],
         "eeg_start": 0,
         "eeg_end": 16
     },
