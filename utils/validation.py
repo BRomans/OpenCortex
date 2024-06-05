@@ -68,7 +68,7 @@ def plot_confusion_matrix(y_true, y_pred, classes, normalize=False, title='Confu
     plt.show()
 
 
-def plot_cross_validated_confusion_matrix(X, y, clf, cv, classes=None, normalize=False, title='Confusion Matrix',
+def plot_cross_validated_confusion_matrix(X, y, clf, cv, classes=['Target', 'Non-Target'], normalize=False, title='Confusion Matrix',
                                           cmap=plt.cm.Blues):
     """ Plot the cross-validated confusion matrix
     :param X: numpy array of shape (n_samples, n_features)
@@ -95,7 +95,7 @@ def plot_cross_validated_confusion_matrix(X, y, clf, cv, classes=None, normalize
     plt.title(title)
     plt.xlabel('Predicted Label')
     plt.ylabel('True Label')
-    plt.show()
+    plt.show(block=False)
 
 
 def plot_roc_curve(y_true, y_scores, pos_label=1, title='ROC Curve', figsize=(10, 6)):
@@ -137,7 +137,7 @@ def plot_roc_curve(y_true, y_scores, pos_label=1, title='ROC Curve', figsize=(10
     plt.show()
 
 
-def plot_cross_validated_roc_curve(classifier, X, y, pos_label=1, n_splits=10, figsize=(10, 6), random_state=None):
+def plot_cross_validated_roc_curve(clf, X, y, pos_label=0, n_splits=10, random_state=None):
     """
     Plots a cross-validated ROC curve for a binary classification model.
 
@@ -169,9 +169,9 @@ def plot_cross_validated_roc_curve(classifier, X, y, pos_label=1, n_splits=10, f
     # Iterate over each fold
     for i, (train, test) in enumerate(cv.split(X, y)):
         # Fit the classifier on the training data
-        classifier.fit(X[train], y[train])
+        clf.fit(X[train], y[train])
         # Predict probabilities on the test data
-        y_pred = classifier.predict(X[test])
+        y_pred = clf.predict(X[test])
         # Compute ROC curve and AUC
         fpr, tpr, _ = roc_curve(y[test], 1 - y_pred, pos_label=pos_label)
         roc_auc = auc(fpr, tpr)
@@ -198,4 +198,4 @@ def plot_cross_validated_roc_curve(classifier, X, y, pos_label=1, n_splits=10, f
     plt.title('Cross-Validated ROC Curve')
     plt.legend(loc='lower right')
     plt.grid(True)
-    plt.show()
+    plt.show(block=False)
