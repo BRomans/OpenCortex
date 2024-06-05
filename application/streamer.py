@@ -52,6 +52,7 @@ class Streamer:
         self.classifier = None
         if model is not None:
             self.model = model
+            self.over_sample = False
             self.classifier_thread = threading.Thread(target=self.init_classifier)
             self.classifier_thread.start()
 
@@ -357,7 +358,7 @@ class Streamer:
     def train_classifier(self):
         """ Train the classifier"""
         data = self.board.get_board_data()
-        self.classifier.train(data, oversample=True)
+        self.classifier.train(data, oversample=self.over_sample)
 
     def update_quality_indicators(self, sample):
         """ Update the quality indicators for each channel"""
