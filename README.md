@@ -116,7 +116,7 @@ This project is freely available to anyone and is not intended for commercial us
 purposes, please cite the original authors.
 
 ## License
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+This project is licensed under the CC License - see the [LICENSE](LICENSE) file for details.
 
 ## Authors
 - [Michele Romani](https://bromans.github.io/)
