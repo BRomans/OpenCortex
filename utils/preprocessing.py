@@ -59,6 +59,7 @@ def extract_epochs(data: RawArray, events, ev_ids=None, tmin: float = -0.6, tmax
     :return: MNE Epochs object
     """
     if ev_ids is None:
-        ev_ids = {}
-    epochs = Epochs(data, events=events, event_id=ev_ids, tmin=tmin, tmax=tmax, baseline=baseline, preload=True)
+        epochs = Epochs(data, events=events, tmin=tmin, tmax=tmax, baseline=baseline, preload=True)
+    else:
+        epochs = Epochs(data, events=events, event_id=ev_ids, tmin=tmin, tmax=tmax, baseline=baseline, preload=True)
     return epochs
