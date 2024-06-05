@@ -7,9 +7,10 @@ class LSLStreamThread(QThread):
     """Thread to read from an LSL stream and emit new sample data."""
 
     new_sample = pyqtSignal(object, float)  # Signal to emit new sample data
+    start_train = pyqtSignal(object, float)
 
     def run(self):
-        # Resolve an LSL stream named 'MyStream'
+        """ Run the LSL stream thread."""
         logging.info("Looking for an LSL stream...")
         streams = resolve_stream('type', 'Markers')
 
@@ -19,6 +20,9 @@ class LSLStreamThread(QThread):
         while True:
             # Pull a new sample from the inlet
             marker, timestamp = inlet.pull_sample()
-            logging.info({"got %s at time %s" % (marker[0], timestamp)})
-            # Emit the new sample data
-            self.new_sample.emit(marker[0], timestamp)
+            if(marker[0] == '99'):
+                self.start_train.emit(marker[0], timestamp)
+            else:
+                # Emit the new sample data
+                self.new_sample.emit(marker[0], timestamp)
+

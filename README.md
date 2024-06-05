@@ -66,6 +66,10 @@ To run any example, use the following command:
 ```bash
 python examples/<example_name>.py
 ```
+To run the EEG Streamer app, use the following command:
+```bash
+python main.py
+```
 
 ## Examples
 The [examples](examples) folder contains single runnable scripts that demonstrate how to handle data collected
@@ -122,7 +126,6 @@ Please make sure to update the [AUTHORS](AUTHORS) file if you are contributing t
 
 ## Acknowledgments
 - [Brainflow](https://brainflow.readthedocs.io/en/stable/index.html)
-- [g.tec](https://www.gtec.at/)
 - [MNE](https://mne.tools/stable/index.html)
 - [Scikit-learn](https://scikit-learn.org/stable/)
 
