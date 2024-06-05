@@ -1,12 +1,17 @@
 import pandas as pd
 import os
+from mne import find_events
 import matplotlib
 import matplotlib.pyplot as plt
-from mne import find_events
-
-from utils.loader import unicorn_channels, convert_to_mne
+from brainflow import BoardIds, BoardShim
+from utils.layouts import layouts
+from utils.loader import load_data, convert_to_mne
 
 matplotlib.use("Qt5Agg")
+
+board_id = BoardIds.UNICORN_BOARD
+fs = BoardShim.get_sampling_rate(board_id)
+chs = layouts[board_id]["channels"]
 
 
 def parse_element(element):
@@ -39,9 +44,9 @@ print(df.head())
 # Convert trigger value to 1 if it is 0 and to 2 if it is 1
 trigger = [1 if x == '0' else 2 for x in df['trigger'].to_numpy()]
 
-raw_array = convert_to_mne(df.iloc[:, 1:9], df['trigger'].to_numpy(), 250, chs=unicorn_channels, recompute=True)
-ev_ids = {'NT': 1, 'T':2}
-event_colors = {1:'r', 2:'g'}
+raw_array = convert_to_mne(df.iloc[:, 1:9], df['trigger'].to_numpy(), fs, chs=chs, recompute=True)
+ev_ids = {'NT': 1, 'T': 2}
+event_colors = {1: 'r', 2: 'g'}
 stim_channel = 'STI'
 events = find_events(raw_array, stim_channel=stim_channel)
 raw_array.save('../data/speller_test-raw.fif', overwrite=True)
