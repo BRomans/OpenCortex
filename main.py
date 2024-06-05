@@ -1,31 +1,9 @@
-import re
-import bluetooth
 import argparse
 import logging
-
 from PyQt5 import QtWidgets
 from brainflow.board_shim import BoardShim, BrainFlowInputParams, BoardIds
-
+from application.setup_dialog import SetupDialog, retrieve_board_id, retrieve_eeg_devices
 from application.streamer import Streamer
-
-
-def retrieve_eeg_devices():
-    saved_devices = bluetooth.discover_devices(duration=1, lookup_names=True, lookup_class=True)
-    unicorn_devices = list(filter(lambda x: re.search(r'UN-\d{4}.\d{2}.\d{2}', x[1]), saved_devices))
-    logging.info(f"Found Unicorns: {unicorn_devices} ")
-    enophone_devices = list(filter(lambda x: re.search(r'enophone', x[1]), saved_devices))
-    logging.info(f"Found Enophones: {enophone_devices} ")
-    synthetic_devices = [('00:00:00:00:00:00', 'Synthetic Board', '0000')]
-    all_devices = synthetic_devices + unicorn_devices + enophone_devices
-    return all_devices
-
-
-def retrieve_board_id(device_name):
-    if re.search(r'UN-\d{4}.\d{2}.\d{2}', device_name):
-        return BoardIds.UNICORN_BOARD
-    if re.search(r'enophone', device_name):
-        return BoardIds.ENOPHONE_BOARD
-    return BoardIds.SYNTHETIC_BOARD
 
 
 def main():
@@ -68,21 +46,29 @@ def main():
         devices = retrieve_eeg_devices()
         win = QtWidgets.QApplication([])
 
-        # add widgets to select window size and update speed
-        selector = QtWidgets.QWidget()
-        args.serial_number = QtWidgets.QInputDialog.getItem(selector, 'Connect EEG', 'Select device',
-                                                            [device[1] for device in devices], 0, False)[0]
-        args.board_id = retrieve_board_id(args.serial_number)
+        dialog = SetupDialog(devices)
+        window_size = 0
+        update_speed = 0
+        if dialog.exec_() == QtWidgets.QDialog.Accepted:
+            selected_device, window_size, update_speed = dialog.get_data()
+            logging.info(f"Selected Device: {selected_device}")
+            logging.info(f"Window Size: {window_size} seconds")
+            logging.info(f"Update Speed: {update_speed} ms")
+            args.serial_number = selected_device
+            args.board_id = retrieve_board_id(args.serial_number)
     except BaseException as e:
         logging.info('Impossible to connect device', e)
         return
+    window_size = 1 if window_size == 0 else int(window_size)
+    update_speed = 1000 if update_speed == 0 else int(update_speed)
 
     params.serial_number = args.serial_number
     board_shim = BoardShim(args.board_id, params)
     try:
         board_shim.prepare_session()
         board_shim.start_stream(streamer_params=args.streamer_params)
-        streamer = Streamer(board_shim, params=params, plot=True, save_data=True, window_size=10, update_speed_ms=80)
+        streamer = Streamer(board_shim, params=params, plot=True, save_data=True, window_size=window_size,
+                            update_speed_ms=update_speed)
     except BaseException:
         logging.warning('Exception', exc_info=True)
     finally:

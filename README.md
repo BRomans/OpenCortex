@@ -126,6 +126,7 @@ Please make sure to update the [AUTHORS](AUTHORS) file if you are contributing t
 
 ## Acknowledgments
 - [Brainflow](https://brainflow.readthedocs.io/en/stable/index.html)
+- [LabStreamingLayer](https://labstreaminglayer.org/)
 - [MNE](https://mne.tools/stable/index.html)
 - [Scikit-learn](https://scikit-learn.org/stable/)
 

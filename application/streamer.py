@@ -135,13 +135,6 @@ class Streamer:
         start_save_layout.addWidget(self.save_data_checkbox)
         start_save_layout.addWidget(self.start_button)
 
-        # Create a layout for the trigger and classifier buttons
-        right_side_layout = QtWidgets.QVBoxLayout()
-        right_side_layout.addWidget(self.input_box)
-        right_side_layout.addWidget(self.trigger_button)
-        right_side_layout.addWidget(self.roc_button)
-        right_side_layout.addWidget(self.confusion_button)
-
         # Create a layout for the bandpass filter
         bandpass_layout = QtWidgets.QHBoxLayout()
         bandpass_layout.addWidget(self.bandpass_checkbox)
@@ -154,14 +147,36 @@ class Streamer:
         notch_layout.addWidget(self.notch_box)
 
         # Create a vertical layout to contain the notch filter and the button layout
+        left_side_label = QtWidgets.QLabel("Filters")
+        left_side_label.setStyleSheet("color: white; font-size: 20px;")
         left_side_layout = QtWidgets.QVBoxLayout()
+        left_side_layout.addWidget(left_side_label)
         left_side_layout.addLayout(bandpass_layout)
         left_side_layout.addLayout(notch_layout)
         left_side_layout.addLayout(start_save_layout)
 
+        # Create a center layout for trigger button
+        center_label = QtWidgets.QLabel("Markers")
+        center_label.setStyleSheet("color: white; size: 20px;")
+        center_layout = QtWidgets.QVBoxLayout()
+        center_layout.addWidget(center_label)
+        center_layout.addWidget(self.input_box)
+        center_layout.addWidget(self.trigger_button)
+        center_layout.addStretch()
+
+        # Create a layout for classifier plots
+        right_side_label = QtWidgets.QLabel("Classifier")
+        right_side_label.setStyleSheet("color: white; font-size: 20px;")
+        right_side_layout = QtWidgets.QVBoxLayout()
+        right_side_layout.addWidget(right_side_label)
+        right_side_layout.addWidget(self.roc_button)
+        right_side_layout.addWidget(self.confusion_button)
+        right_side_layout.addStretch()
+
         # Horizontal layout to contain the classifier buttons
         horizontal_container = QtWidgets.QHBoxLayout()
         horizontal_container.addLayout(left_side_layout)
+        horizontal_container.addLayout(center_layout)
         horizontal_container.addLayout(right_side_layout)
 
         # Create a widget to contain the layout
