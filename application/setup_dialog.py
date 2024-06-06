@@ -42,7 +42,7 @@ class SetupDialog(QtWidgets.QDialog):
         self.window_size_slider = QtWidgets.QSlider(QtCore.Qt.Horizontal, self)
         self.window_size_slider.setMinimum(1)
         self.window_size_slider.setMaximum(20)
-        self.window_size_slider.setValue(10)
+        self.window_size_slider.setValue(1)
         self.window_size_slider.valueChanged.connect(self.update_window_size_label)
         self.window_size_label = QtWidgets.QLabel(f'Window size: {self.window_size_slider.value()} seconds', self)
 
@@ -53,7 +53,7 @@ class SetupDialog(QtWidgets.QDialog):
         # Create input box for update speed
         self.update_speed_input = QtWidgets.QLineEdit(self)
         self.update_speed_input.setValidator(QtGui.QIntValidator(50, 2000, self))
-        self.update_speed_input.setText('80')
+        self.update_speed_input.setText('1000')
 
         layout.addWidget(QtWidgets.QLabel('Update speed (ms)'))
         layout.addWidget(self.update_speed_input)

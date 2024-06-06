@@ -11,8 +11,9 @@ from application.classifier import Classifier
 from application.lsl_stream import LSLStreamThread
 from utils.layouts import layouts
 from pyqtgraph import ScatterPlotItem, mkBrush
-from brainflow.board_shim import BoardShim, BrainFlowInputParams, BoardIds
+from brainflow.board_shim import BoardShim
 from brainflow.data_filter import DataFilter, FilterTypes, DetrendOperations
+from concurrent.futures import ThreadPoolExecutor
 
 matplotlib.use("Qt5Agg")
 
@@ -29,8 +30,9 @@ def write_header(file, board_id):
 
 class Streamer:
 
-    def __init__(self, board, params, plot=True, save_data=True, window_size=1, update_speed_ms=1000, model='SVM'):
+    def __init__(self, board, params, plot=True, save_data=True, window_size=1, update_speed_ms=1000, model='LDA'):
         time.sleep(window_size)  # Wait for the board to be ready
+
         self.is_streaming = True
         self.params = params
         self.initial_ts = time.time()
@@ -50,6 +52,7 @@ class Streamer:
 
         # Initialize the classifier in a new thread
         self.classifier = None
+        self.executor = ThreadPoolExecutor(max_workers=5)
         if model is not None:
             self.model = model
             self.over_sample = False
@@ -58,10 +61,27 @@ class Streamer:
 
         self.app = QtWidgets.QApplication([])
 
+        # Calculate time interval for prediction
+        self.nclasses = 3
+        self.frame_rate = 60 # Hz
+        self.on_time = 250 # ms
+        self.off_time = (self.on_time * (self.nclasses - 1))
+        logging.info(f"Off time: {self.off_time} ms")
+        self.prediction_interval = int(self.on_time + self.off_time)
+        logging.info(f"Prediction interval: {self.prediction_interval} ms")
+        # calculate how many datapoints based on the sampling rate
+        self.prediction_datapoints = int(self.prediction_interval * self.sampling_rate / 1000)
+        logging.info(f"Prediction interval in datapoints: {self.prediction_datapoints}")
+
         logging.info("Looking for an LSL stream...")
+        # Connect to the LSL stream threads
+        self.prediction_timer = QtCore.QTimer()
+        self.prediction_timer.timeout.connect(self.predict_class)
         self.lsl_thread = LSLStreamThread()
         self.lsl_thread.new_sample.connect(self.write_trigger)
         self.lsl_thread.start_train.connect(self.train_classifier)
+        self.lsl_thread.start_predicting.connect(self.start_prediction)
+        self.lsl_thread.stop_predicting.connect(self.stop_prediction)
         self.lsl_thread.start()
 
         if plot:
@@ -72,10 +92,11 @@ class Streamer:
             self._init_timeseries()
             self.create_buttons()
 
-        # Start the PyQt event loop
-        timer = QtCore.QTimer()
-        timer.timeout.connect(self.update)
-        timer.start(self.update_speed_ms)
+        # Start the PyQt event loop to fetch the raw data
+        self.timer = QtCore.QTimer()
+        self.timer.timeout.connect(self.update)
+        self.timer.start(self.update_speed_ms)
+
         self.start_lsl_eeg_stream()
         self.app.exec_()
 
@@ -361,9 +382,6 @@ class Streamer:
         """
         if timestamp == 0:
             timestamp = time.time()
-        date_time = time.strftime('%d-%m-%Y %H:%M:%S', time.localtime(timestamp))
-        logging.info(f"Trigger {trigger} written at {date_time}")
-
         self.board.insert_marker(int(trigger))
 
     def init_classifier(self):
@@ -374,6 +392,30 @@ class Streamer:
         """ Train the classifier"""
         data = self.board.get_board_data()
         self.classifier.train(data, oversample=self.over_sample)
+
+    def start_prediction(self):
+        """Start the prediction timer."""
+        self.prediction_timer.start(self.prediction_interval)
+
+    def stop_prediction(self):
+        """Stop the prediction timer."""
+        self.prediction_timer.stop()
+
+    def _predict_class(self, data):
+        """Internal method to predict the class of the data."""
+        try:
+            output = self.classifier.predict(data, proba=False)
+            logging.info(f"Predicted class: {output}")
+        except Exception as e:
+            logging.error(f"Error predicting class: {e}")
+
+    def predict_class(self):
+        """Predict the class of the data."""
+        try:
+            data = self.board.get_current_board_data(self.prediction_datapoints)
+            self.executor.submit(self._predict_class, data)
+        except Exception as e:
+            logging.error(f"Error starting prediction task: {e}")
 
     def update_quality_indicators(self, sample):
         """ Update the quality indicators for each channel"""
