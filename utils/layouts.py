@@ -4,10 +4,11 @@ layouts = {
     BoardIds.SYNTHETIC_BOARD.value: {
         "channels": ["Fp1", "Fp2", "F7", "F3", "Fz", "F4", "F8", "T3",
                      "C3", "Cz", "C4", "T4", "T5", "P3", "Pz", "P4"],
-        "header": ["Fp1", "Fp2", "F7", "F3", "Fz", "F4", "F8", "T3",
-                   "C3", "Cz", "C4", "T4", "T5", "P3", "Pz", "P4", "Trigger"],
-        "eeg_start": 0,
-        "eeg_end": 16
+        "header": ["Sample","Fp1", "Fp2", "F7", "F3", "Fz", "F4", "F8", "T3",
+                   "C3", "Cz", "C4", "T4", "T5", "P3", "Pz", "P4", "ch18", "ch19", "ch20", "ch21", "ch22", "ch23",
+                   "ch24", "ch25", "ch26", "ch27", "ch28", "ch29", "ch30", "Time", "Trigger"],
+        "eeg_start": 1,
+        "eeg_end": 17
     },
     BoardIds.UNICORN_BOARD.value: {
         "channels": ["Fz", "C3", "Cz", "C4", "Pz", "PO7", "Oz", "PO8"],
