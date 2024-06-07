@@ -1,6 +1,7 @@
 import logging
-import pytz
 import time
+import pylsl
+import numpy as np
 from datetime import datetime
 from PyQt5.QtCore import QThread, pyqtSignal
 from pylsl import resolve_stream, StreamInlet
@@ -14,6 +15,7 @@ class LSLStreamThread(QThread):
     start_train = pyqtSignal(object, float)
     start_predicting = pyqtSignal(object, float)
     stop_predicting = pyqtSignal(object, float)
+    previous_ts = 0
 
     def run(self):
         """ Run the LSL stream thread."""
@@ -26,30 +28,32 @@ class LSLStreamThread(QThread):
         while True:
             # Pull a new sample from the inlet
             marker, timestamp = inlet.pull_sample()
-            timestamp = time.time()
+            timestamp = pylsl.local_clock()
+            delta_ts = np.round(timestamp - self.previous_ts, 2) if self.previous_ts != 0 else 0
+            self.previous_ts = timestamp
+
             if (marker[0] == '98'):
                 self.new_sample.emit(marker[0], timestamp)
                 self.set_train_start.emit(marker[0], timestamp)
-                self.new_sample.emit(marker[0], timestamp)
-                date_time = datetime.fromtimestamp(timestamp)
+                date_time = datetime.fromtimestamp(time.time())
                 logging.info(f"Start of training trigger {marker[0]} written at {date_time}")
             if(marker[0] == '99'):
                 self.new_sample.emit(marker[0], timestamp)
                 self.start_train.emit(marker[0], timestamp)
-                date_time = datetime.fromtimestamp(timestamp)
+                date_time = datetime.fromtimestamp(time.time())
                 logging.info(f"End of training trigger {marker[0]} written at {date_time}")
             elif(marker[0] == '100'):
                 self.new_sample.emit(marker[0], timestamp)
                 self.start_predicting.emit(marker[0], timestamp)
-                date_time = datetime.fromtimestamp(timestamp)
+                date_time = datetime.fromtimestamp(time.time())
                 logging.info(f"Start application trigger {marker[0]} written at {date_time}")
             elif(marker[0] == '101'):
                 self.new_sample.emit(marker[0], timestamp)
                 self.stop_predicting.emit(marker[0], timestamp)
-                date_time = datetime.fromtimestamp(timestamp)
+                date_time = datetime.fromtimestamp(time.time())
                 logging.info(f"Stop application trigger {marker[0]} written at {date_time}")
             else:
                 # Emit the new sample data
-                # logging.info(f"New sample: {marker[0]} at {timestamp}")
+                logging.info(f"New sample: {marker[0]} after {delta_ts}")
                 self.new_sample.emit(marker[0], timestamp)
 
