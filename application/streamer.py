@@ -63,8 +63,7 @@ class Streamer:
 
         # Calculate time interval for prediction
         self.nclasses = 3
-        self.frame_rate = 60 # Hz
-        self.on_time = 250 # ms
+        self.on_time = 150 # ms
         self.off_time = (self.on_time * (self.nclasses - 1))
         logging.info(f"Off time: {self.off_time} ms")
         self.prediction_interval = int(self.on_time + self.off_time)
@@ -79,6 +78,7 @@ class Streamer:
         self.prediction_timer.timeout.connect(self.predict_class)
         self.lsl_thread = LSLStreamThread()
         self.lsl_thread.new_sample.connect(self.write_trigger)
+        self.lsl_thread.set_train_start.connect(self.set_train_start)
         self.lsl_thread.start_train.connect(self.train_classifier)
         self.lsl_thread.start_predicting.connect(self.start_prediction)
         self.lsl_thread.stop_predicting.connect(self.stop_prediction)
@@ -380,6 +380,9 @@ class Streamer:
         :param trigger: int, trigger value
         :param timestamp: float, timestamp value
         """
+        if trigger == '':
+            logging.error("Trigger value cannot be empty")
+            return
         if timestamp == 0:
             timestamp = time.time()
         self.board.insert_marker(int(trigger))
@@ -388,9 +391,16 @@ class Streamer:
         """ Initialize the classifier """
         self.classifier = Classifier(model=self.model, board_id=self.board_id)
 
+    def set_train_start(self):
+        """" Set the start of the training"""
+        self.start_training_time = time.time()
+
     def train_classifier(self):
         """ Train the classifier"""
-        data = self.board.get_board_data()
+        end_training_time = time.time()
+        training_length = end_training_time - self.start_training_time + 1
+        training_interval = int(training_length * self.sampling_rate)
+        data = self.board.get_current_board_data(training_interval)
         self.classifier.train(data, oversample=self.over_sample)
 
     def start_prediction(self):
@@ -412,7 +422,7 @@ class Streamer:
     def predict_class(self):
         """Predict the class of the data."""
         try:
-            data = self.board.get_current_board_data(self.prediction_datapoints)
+            data = self.board.get_current_board_data(int(self.prediction_datapoints) + 10)
             self.executor.submit(self._predict_class, data)
         except Exception as e:
             logging.error(f"Error starting prediction task: {e}")
