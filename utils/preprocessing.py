@@ -47,19 +47,20 @@ def extract_events(data: RawArray, stim_channel='STI', ev_ids=None, event_color=
     return events, ev_ids, event_color
 
 
-def extract_epochs(data: RawArray, events, ev_ids=None, tmin: float = -0.6, tmax: float = 0.8, baseline: tuple = (-.6, -.1)):
+def extract_epochs(data: RawArray, events, ev_ids=None, reject=None, tmin: float = -0.6, tmax: float = 0.8, baseline: tuple = (-.6, -.1)):
     """
     This function is used to extract epochs from the data.
     :param data: MNE RawArray object
     :param events: numpy array of shape (n_events, 3)
     :param ev_ids: dict, event ids
+    :param reject: dict, rejection parameters
     :param tmin: float, minimum time
     :param tmax: float, maximum time
     :param baseline: tuple, baseline correction
     :return: MNE Epochs object
     """
     if ev_ids is None:
-        epochs = Epochs(data, events=events, tmin=tmin, tmax=tmax, baseline=baseline, preload=True)
+        epochs = Epochs(data, events=events, reject=reject, tmin=tmin, tmax=tmax, baseline=baseline, preload=True)
     else:
-        epochs = Epochs(data, events=events, event_id=ev_ids, tmin=tmin, tmax=tmax, baseline=baseline, preload=True)
+        epochs = Epochs(data, events=events, event_id=ev_ids, reject=reject, tmin=tmin, tmax=tmax, baseline=baseline, preload=True)
     return epochs
