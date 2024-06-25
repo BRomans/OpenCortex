@@ -11,8 +11,9 @@ from application.classifier import Classifier
 from application.lsl_stream import LSLStreamThread
 from utils.layouts import layouts
 from pyqtgraph import ScatterPlotItem, mkBrush
-from brainflow.board_shim import BoardShim, BrainFlowInputParams, BoardIds
+from brainflow.board_shim import BoardShim
 from brainflow.data_filter import DataFilter, FilterTypes, DetrendOperations
+from concurrent.futures import ThreadPoolExecutor
 
 matplotlib.use("Qt5Agg")
 
@@ -29,8 +30,9 @@ def write_header(file, board_id):
 
 class Streamer:
 
-    def __init__(self, board, params, plot=True, save_data=True, window_size=1, update_speed_ms=1000, model='SVM'):
+    def __init__(self, board, params, plot=True, save_data=True, window_size=1, update_speed_ms=1000, model='LDA'):
         time.sleep(window_size)  # Wait for the board to be ready
+
         self.is_streaming = True
         self.params = params
         self.initial_ts = time.time()
@@ -50,6 +52,7 @@ class Streamer:
 
         # Initialize the classifier in a new thread
         self.classifier = None
+        self.executor = ThreadPoolExecutor(max_workers=5)
         if model is not None:
             self.model = model
             self.over_sample = False
@@ -58,10 +61,27 @@ class Streamer:
 
         self.app = QtWidgets.QApplication([])
 
+        # Calculate time interval for prediction
+        self.nclasses = 3
+        self.on_time = 150 # ms
+        self.off_time = (self.on_time * (self.nclasses - 1))
+        logging.info(f"Off time: {self.off_time} ms")
+        self.prediction_interval = int(self.on_time + self.off_time)
+        logging.info(f"Prediction interval: {self.prediction_interval} ms")
+        # calculate how many datapoints based on the sampling rate
+        self.prediction_datapoints = int(self.prediction_interval * self.sampling_rate / 1000)
+        logging.info(f"Prediction interval in datapoints: {self.prediction_datapoints}")
+
         logging.info("Looking for an LSL stream...")
+        # Connect to the LSL stream threads
+        self.prediction_timer = QtCore.QTimer()
+        self.prediction_timer.timeout.connect(self.predict_class)
         self.lsl_thread = LSLStreamThread()
         self.lsl_thread.new_sample.connect(self.write_trigger)
+        self.lsl_thread.set_train_start.connect(self.set_train_start)
         self.lsl_thread.start_train.connect(self.train_classifier)
+        self.lsl_thread.start_predicting.connect(self.start_prediction)
+        self.lsl_thread.stop_predicting.connect(self.stop_prediction)
         self.lsl_thread.start()
 
         if plot:
@@ -72,10 +92,11 @@ class Streamer:
             self._init_timeseries()
             self.create_buttons()
 
-        # Start the PyQt event loop
-        timer = QtCore.QTimer()
-        timer.timeout.connect(self.update)
-        timer.start(self.update_speed_ms)
+        # Start the PyQt event loop to fetch the raw data
+        self.timer = QtCore.QTimer()
+        self.timer.timeout.connect(self.update)
+        self.timer.start(self.update_speed_ms)
+
         self.start_lsl_eeg_stream()
         self.app.exec_()
 
@@ -135,13 +156,6 @@ class Streamer:
         start_save_layout.addWidget(self.save_data_checkbox)
         start_save_layout.addWidget(self.start_button)
 
-        # Create a layout for the trigger and classifier buttons
-        right_side_layout = QtWidgets.QVBoxLayout()
-        right_side_layout.addWidget(self.input_box)
-        right_side_layout.addWidget(self.trigger_button)
-        right_side_layout.addWidget(self.roc_button)
-        right_side_layout.addWidget(self.confusion_button)
-
         # Create a layout for the bandpass filter
         bandpass_layout = QtWidgets.QHBoxLayout()
         bandpass_layout.addWidget(self.bandpass_checkbox)
@@ -154,14 +168,36 @@ class Streamer:
         notch_layout.addWidget(self.notch_box)
 
         # Create a vertical layout to contain the notch filter and the button layout
+        left_side_label = QtWidgets.QLabel("Filters")
+        left_side_label.setStyleSheet("color: white; font-size: 20px;")
         left_side_layout = QtWidgets.QVBoxLayout()
+        left_side_layout.addWidget(left_side_label)
         left_side_layout.addLayout(bandpass_layout)
         left_side_layout.addLayout(notch_layout)
         left_side_layout.addLayout(start_save_layout)
 
+        # Create a center layout for trigger button
+        center_label = QtWidgets.QLabel("Markers")
+        center_label.setStyleSheet("color: white; size: 20px;")
+        center_layout = QtWidgets.QVBoxLayout()
+        center_layout.addWidget(center_label)
+        center_layout.addWidget(self.input_box)
+        center_layout.addWidget(self.trigger_button)
+        center_layout.addStretch()
+
+        # Create a layout for classifier plots
+        right_side_label = QtWidgets.QLabel("Classifier")
+        right_side_label.setStyleSheet("color: white; font-size: 20px;")
+        right_side_layout = QtWidgets.QVBoxLayout()
+        right_side_layout.addWidget(right_side_label)
+        right_side_layout.addWidget(self.roc_button)
+        right_side_layout.addWidget(self.confusion_button)
+        right_side_layout.addStretch()
+
         # Horizontal layout to contain the classifier buttons
         horizontal_container = QtWidgets.QHBoxLayout()
         horizontal_container.addLayout(left_side_layout)
+        horizontal_container.addLayout(center_layout)
         horizontal_container.addLayout(right_side_layout)
 
         # Create a widget to contain the layout
@@ -344,21 +380,52 @@ class Streamer:
         :param trigger: int, trigger value
         :param timestamp: float, timestamp value
         """
+        if trigger == '':
+            logging.error("Trigger value cannot be empty")
+            return
         if timestamp == 0:
             timestamp = time.time()
-        date_time = time.strftime('%d-%m-%Y %H:%M:%S', time.localtime(timestamp))
-        logging.info(f"Trigger {trigger} written at {date_time}")
-
         self.board.insert_marker(int(trigger))
 
     def init_classifier(self):
         """ Initialize the classifier """
         self.classifier = Classifier(model=self.model, board_id=self.board_id)
 
+    def set_train_start(self):
+        """" Set the start of the training"""
+        self.start_training_time = time.time()
+
     def train_classifier(self):
         """ Train the classifier"""
-        data = self.board.get_board_data()
+        end_training_time = time.time()
+        training_length = end_training_time - self.start_training_time + 1
+        training_interval = int(training_length * self.sampling_rate)
+        data = self.board.get_current_board_data(training_interval)
         self.classifier.train(data, oversample=self.over_sample)
+
+    def start_prediction(self):
+        """Start the prediction timer."""
+        self.prediction_timer.start(self.prediction_interval)
+
+    def stop_prediction(self):
+        """Stop the prediction timer."""
+        self.prediction_timer.stop()
+
+    def _predict_class(self, data):
+        """Internal method to predict the class of the data."""
+        try:
+            output = self.classifier.predict(data, proba=False)
+            logging.info(f"Predicted class: {output}")
+        except Exception as e:
+            logging.error(f"Error predicting class: {e}")
+
+    def predict_class(self):
+        """Predict the class of the data."""
+        try:
+            data = self.board.get_current_board_data(int(self.prediction_datapoints) + 10)
+            self.executor.submit(self._predict_class, data)
+        except Exception as e:
+            logging.error(f"Error starting prediction task: {e}")
 
     def update_quality_indicators(self, sample):
         """ Update the quality indicators for each channel"""

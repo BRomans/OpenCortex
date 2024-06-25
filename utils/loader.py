@@ -7,7 +7,13 @@ from mne.channels import make_standard_montage
 from utils.layouts import layouts
 
 
-def load_data(path, header, fs, board=BoardIds.UNICORN_BOARD,  skiprows=5, delimiter=','):
+def load_data(path, header=None, fs=250, board=None,  skiprows=5, delimiter=','):
+    if board is None:
+        df = pd.read_csv(path, skiprows=skiprows * fs, delimiter=delimiter)
+        eeg = df.iloc[:, 0:-1].to_numpy()
+        trigger = np.array(df.iloc[:, -1])
+        return eeg, trigger, df
+
     start_eeg = layouts[board]["eeg_start"]
     end_eeg = layouts[board]["eeg_end"]
     if header == "unity":
