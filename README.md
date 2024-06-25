@@ -1,7 +1,16 @@
-# EEG Python Essentials Toolkit
-A collection of utilities for interfacing with consumer EEG devices.
-Complete with examples to analyse EEG data using the library MNE and to perform classification tasks using scikit-learn.
-Includes an EEG Streamer app to plot and save data in real-time.
+# Cortex Streamer
+CortexStreamer is an EEG Streamer a fully-featured app to stream EEG data and markers
+It includes:
+- a GUI to plot EEG in real-time
+- signal filters (visualization only)
+- signal quality estimators
+- a button to save custom markers on the data
+- an inlet stream that can receive event markers through LSL from an external source
+- an outlet stream that can send raw EEG to an external source
+- a general-purpose classifier class that can be initialized with any model from Scikit-Learn
+- cross-validation plots with ROC curve and Confusion Matrix
+
+It includes educational notebooks to analyse EEG data using the library MNE and to perform classification tasks using Scikit-Learn.
 
 
 ## Table of Contents
@@ -20,9 +29,8 @@ Includes an EEG Streamer app to plot and save data in real-time.
 - [License](#license)
 
 ## Supported Devices
-- g.tec Unicorn
-- Enophones
-- (Coming Soon) Emotiv Epoc
+- Any EEG board listed on (Brainflow)[https://brainflow.readthedocs.io/en/stable/SupportedBoards.html]
+- (Coming Soon) Emotiv Epoc and other consumer EEG devices
 
 ## Getting Started
 
@@ -81,6 +89,7 @@ can run the notebooks using Jupyter, Jupyter Lab or Google Colab.
 
 ## Building
 This project can be built as pip package using the following commands
+
 ### Wheel Distribution
 To build a wheel distribution, run the following command:
 ```bash
