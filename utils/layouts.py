@@ -22,6 +22,11 @@ layouts = {
         "eeg_start": 0,
         "eeg_end": 8,
     },
+    BoardIds.ANT_NEURO_EE_411_BOARD.value: {
+        "channels": ["Fz", "C3", "Cz", "C4", "Pz", "PO7", "Oz", "PO8"],
+        "eeg_start": 0,
+        "eeg_end": 8,
+    },
     BoardIds.ENOPHONE_BOARD.value: {
         "channels": ["A1", "C3", "C4", "A2"],
         "header": ["Sample", "A1", "C3", "C4", "A2", "Time", "Trigger"],
