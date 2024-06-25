@@ -15,7 +15,7 @@ from utils.preprocessing import basic_preprocessing_pipeline, extract_epochs
 from utils.validation import plot_cross_validated_roc_curve, plot_cross_validated_confusion_matrix
 
 # turn off MNE logging
-mne.utils.set_log_level('ERROR')
+#mne.utils.set_log_level('ERROR')
 random_state = 32
 np.random.seed(random_state)
 
@@ -37,8 +37,8 @@ class Classifier:
         self.board_id = board_id
         self.fs = BoardShim.get_sampling_rate(self.board_id)
         self.chs = layouts[self.board_id]["channels"]
-        self.epoch_start = -0.2
-        self.epoch_end = 0.5
+        self.epoch_start = -0.1
+        self.epoch_end = 0.7
         self.seg_start = 50
         self.seg_end = 150
         self.baseline = (self.epoch_start, 0)
@@ -91,7 +91,7 @@ class Classifier:
         logging.info(f"Cross-validation F1: {cv_f1.mean():.2f} +/- {cv_f1.std():.2f}")
         return cv_accuracy, cv_f1
 
-    def preprocess(self, data):
+    def preprocess(self, data, filter_length='auto'):
         start_eeg = layouts[self.board_id]["eeg_start"]
         end_eeg = layouts[self.board_id]["eeg_end"]
         eeg = data[start_eeg:end_eeg]
@@ -106,16 +106,16 @@ class Classifier:
         events[:, 2][events[:, 2] != 1] = 3
         if BoardIds.ENOPHONE_BOARD == self.board_id:
             raw, _ = set_eeg_reference(raw, ref_channels='average')
-        filtered = basic_preprocessing_pipeline(raw, lp_freq=2, hp_freq=15, notch_freqs=(50, 60))
+        filtered = basic_preprocessing_pipeline(raw, lp_freq=2, hp_freq=15, notch_freqs=(50, 60), filter_length=filter_length)
         eps = extract_epochs(data=filtered, events=events, tmin=self.epoch_start, tmax=self.epoch_end,
                              baseline=self.baseline)
-        preprocessed = eps.get_data()[:, :, self.seg_start:self.seg_end]
+        preprocessed = eps.get_data(picks='eeg')[:, :, self.seg_start:self.seg_end]
         labels = eps.events[:, -1]
         logging.info(f"Data preprocessed and epochs extracted with shape {preprocessed.shape}")
         return preprocessed, labels
 
     def predict(self, data, proba=False):
-        return self.predict_class(data) if not proba else self.predict_proba(data)
+        return self.predict_class(data) if not proba else self.predict_probabilities(data)
 
     def predict_class(self, data):
         """
@@ -123,21 +123,21 @@ class Classifier:
         :param data: numpy array of shape (n_samples, n_features)
         :return: numpy array of shape (n_samples, )
         """
-        X, _ = self.preprocess(data)
+        X, _ = self.preprocess(data, filter_length='700ms')
         X = X.reshape(X.shape[0], -1)
         X = self.scaler.transform(X)
         return self.model.predict(X)
 
-    def predict_proba(self, data):
+    def predict_probabilities(self, data):
         """
         Compute the probability estimates for the input data
         :param data: numpy array of shape (n_samples, n_features)
         :return: numpy array of shape (n_samples, n_classes)
         """
-        X, _ = self.preprocess(data)
+        X, _ = self.preprocess(data, filter_length='700ms')
         X = X.reshape(X.shape[0], -1)
         X = self.scaler.transform(X)
-        return self.model.predict_proba(data)
+        return self.model.predict_proba(X)
 
     def plot_roc_curve(self, n_splits=5):
         """ Plot the cross-validated ROC curve for the model"""

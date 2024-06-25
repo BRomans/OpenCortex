@@ -63,7 +63,7 @@ class Streamer:
 
         # Calculate time interval for prediction
         self.nclasses = 3
-        self.on_time = 150 # ms
+        self.on_time = 500 # ms
         self.off_time = (self.on_time * (self.nclasses - 1))
         logging.info(f"Off time: {self.off_time} ms")
         self.prediction_interval = int(self.on_time + self.off_time)
@@ -107,6 +107,7 @@ class Streamer:
         self.input_box = QtWidgets.QLineEdit()
         self.input_box.setFixedWidth(100)  # Set a fixed width for the input box
         self.input_box.setPlaceholderText('Trigger value')
+        self.input_box.setText('1')
 
         self.trigger_button = QtWidgets.QPushButton('Send Trigger')
         self.trigger_button.setFixedWidth(100)  # Set a fixed width for the button
@@ -414,7 +415,7 @@ class Streamer:
     def _predict_class(self, data):
         """Internal method to predict the class of the data."""
         try:
-            output = self.classifier.predict(data, proba=False)
+            output = self.classifier.predict(data, proba=True)
             logging.info(f"Predicted class: {output}")
         except Exception as e:
             logging.error(f"Error predicting class: {e}")
@@ -422,7 +423,7 @@ class Streamer:
     def predict_class(self):
         """Predict the class of the data."""
         try:
-            data = self.board.get_current_board_data(int(self.prediction_datapoints) + 10)
+            data = self.board.get_current_board_data(int(self.sampling_rate))
             self.executor.submit(self._predict_class, data)
         except Exception as e:
             logging.error(f"Error starting prediction task: {e}")

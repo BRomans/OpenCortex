@@ -1,7 +1,7 @@
 from setuptools import setup, find_packages
 
 setup(
-    name="UnicornPythonEssentialsToolkit",
+    name="CortexToolkit",
     version="0.0.1",
     author="Michele Romani",
     author_email="michele.romani.gzl0@gmail.com",
@@ -11,7 +11,7 @@ setup(
         "License :: OSI Approved :: MIT License",
         "Operating System :: OS Independent",
     ],
-    url="https://github.com/BRomans/UnicornPythonEssentialsToolkit",
+    url="https://github.com/BRomans/CortexToolkit",
     packages=find_packages(exclude=["data", "images", "notebooks"]),
     python_requires=">=3.8",
 )
