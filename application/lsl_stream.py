@@ -23,7 +23,8 @@ class LSLStreamThread(QThread):
         streams = resolve_stream('type', 'Markers')
 
         # Create a new inlet to read from the stream
-        inlet = StreamInlet(streams[0])
+        inlet = StreamInlet(streams[0], processing_flags=pylsl.proc_clocksync | pylsl.proc_dejitter | pylsl.proc_threadsafe)
+
 
         while True:
             # Pull a new sample from the inlet
