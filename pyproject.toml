@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "CortexToolkit"
+version = "0.0.1"
+authors = [
+  { name="Michele Romani", email="michele.romani.gzl0@gmail.com" },
+]
+description = "Package to stream, collect and analyse EEG data"
+readme = "README.md"
+requires-python = ">=3.8"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+
+[project.urls]
+Homepage = "https://github.com/BRomans/CortexToolkit"
+Issues = "https://github.com/BRomans/CortexToolkit/issues"
