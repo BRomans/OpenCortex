@@ -140,17 +140,17 @@ class Streamer:
         self.bandpass_box_low = QtWidgets.QLineEdit()
         self.bandpass_box_low.setPlaceholderText('0')
         self.bandpass_box_low.setText('1')
-        self.bandpass_box_low.setFixedWidth(25)
+        self.bandpass_box_low.setMaximumWidth(30)
         self.bandpass_box_high = QtWidgets.QLineEdit()
         self.bandpass_box_high.setPlaceholderText('0')
         self.bandpass_box_high.setText('40')
-        self.bandpass_box_high.setFixedWidth(25)
+        self.bandpass_box_high.setMaximumWidth(30)
 
         # Input box to configure Notch filter with checkbox to enable/disable it and white label
         self.notch_checkbox = QtWidgets.QCheckBox('Notch filter frequencies (Hz)')
         self.notch_checkbox.setStyleSheet('color: white')
         self.notch_box = QtWidgets.QLineEdit()
-        self.notch_box.setFixedWidth(56)  # Set a fixed width for the input box
+        self.notch_box.setMaximumWidth(60)  # Set a fixed width for the input box
         self.notch_box.setPlaceholderText('0, 0')
         self.notch_box.setText('50, 60')
 
@@ -162,12 +162,15 @@ class Streamer:
         # Create a layout for the bandpass filter
         bandpass_layout = QtWidgets.QHBoxLayout()
         bandpass_layout.addWidget(self.bandpass_checkbox)
+        bandpass_layout.addSpacing(10)  # Add spacing between widgets
         bandpass_layout.addWidget(self.bandpass_box_low)
+        bandpass_layout.addSpacing(10)  # Add spacing between widgets
         bandpass_layout.addWidget(self.bandpass_box_high)
 
         # Create a layout for the notch filter
         notch_layout = QtWidgets.QHBoxLayout()
         notch_layout.addWidget(self.notch_checkbox)
+        notch_layout.addSpacing(10)  # Add spacing between widgets
         notch_layout.addWidget(self.notch_box)
 
         # Create a vertical layout to contain the notch filter and the button layout
@@ -186,7 +189,6 @@ class Streamer:
         center_layout.addWidget(center_label)
         center_layout.addWidget(self.input_box)
         center_layout.addWidget(self.trigger_button)
-        center_layout.addStretch()
 
         # Create a layout for classifier plots
         right_side_label = QtWidgets.QLabel("Classifier")
@@ -195,12 +197,14 @@ class Streamer:
         right_side_layout.addWidget(right_side_label)
         right_side_layout.addWidget(self.roc_button)
         right_side_layout.addWidget(self.confusion_button)
-        right_side_layout.addStretch()
 
         # Horizontal layout to contain the classifier buttons
         horizontal_container = QtWidgets.QHBoxLayout()
+        horizontal_container.addSpacing(20)
         horizontal_container.addLayout(left_side_layout)
+        horizontal_container.addSpacing(20)
         horizontal_container.addLayout(center_layout)
+        horizontal_container.addSpacing(20)
         horizontal_container.addLayout(right_side_layout)
 
         # Create a widget to contain the layout
@@ -235,7 +239,7 @@ class Streamer:
             p.setMenuEnabled('bottom', False)
             p.setMinimumWidth(400)
             p.setTitle(layouts[self.board_id]["channels"][i])  # Set title to channel name for each plot
-            p.setLabel('left', text='Amplitude (uV) ')  # Label for y-axis
+            p.setLabel('left', text='Amp (uV) ')  # Label for y-axis
             p.setLabel('bottom', text='Time (s)')  # Label for x-axis
             self.plots.append(p)
             curve = p.plot(pen=colors[i])  # Set a specific color for each curve
@@ -253,9 +257,13 @@ class Streamer:
         p.showAxis('bottom', True)
         p.setMenuEnabled('bottom', False)
         p.setYRange(0, 5)
-        p.setTitle('Trigger')
-        p.setLabel('left', text='Trigger')
+        p.setTitle('Event Channel')
+        p.setLabel('left', text='Marker')
         p.setLabel('bottom', text='Time (s)')
+        # set maximum width to half of the window
+        p.setMinimumWidth(400)
+        p.setMaximumWidth(self.win.width() / 2)
+
         self.plots.append(p)
         curve = p.plot(pen='red')
         self.curves.append(curve)
