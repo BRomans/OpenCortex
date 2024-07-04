@@ -149,4 +149,4 @@ class Classifier:
         """ Plot the cross-validated confusion matrix for the model"""
         plt.close()
         cv = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=random_state)
-        plot_cross_validated_confusion_matrix(X=self.prep_X, y=self.prep_Y, clf=self.model, cv=cv)
+        plot_cross_validated_confusion_matrix(X=self.prep_X, y=self.prep_Y, clf=self.model, cv=cv, normalize=True)
