@@ -48,6 +48,7 @@ class Streamer:
         self.plot = plot
         self.save_data = save_data
         self.num_points = self.window_size * self.sampling_rate
+        self.filtered_eeg = np.zeros((len(self.eeg_channels) + 1, self.num_points))
         logging.info(f"Connected to {self.board.get_device_name(self.board.get_board_id())}")
 
         # Initialize the classifier in a new thread
@@ -63,7 +64,7 @@ class Streamer:
 
         # Calculate time interval for prediction
         self.nclasses = 3
-        self.on_time = 500 # ms
+        self.on_time = 150 # ms
         self.off_time = (self.on_time * (self.nclasses - 1))
         logging.info(f"Off time: {self.off_time} ms")
         self.prediction_interval = int(self.on_time + self.off_time)
@@ -98,6 +99,7 @@ class Streamer:
         self.timer.start(self.update_speed_ms)
 
         self.start_lsl_eeg_stream()
+        self.start_lsl_prediction_stream()
         self.app.exec_()
 
     def create_buttons(self):
@@ -264,12 +266,15 @@ class Streamer:
             if self.window_size == 0:
                 raise ValueError("Window size cannot be zero")
             data = self.board.get_current_board_data(num_samples=self.num_points)
-            self.push_lsl_chunk(data)
+            start_eeg = layouts[self.board_id]["eeg_start"]
+            end_eeg = layouts[self.board_id]["eeg_end"]
+            eeg = data[start_eeg:end_eeg]
+            self.push_lsl_eeg_chunk(data)
             self.sample_counter += 1
             # logging.info(f"Pulling sample {self.sample_counter}: {data.shape}")
             if self.plot:
                 for count, channel in enumerate(self.eeg_channels):
-                    ch_data = data[channel]
+                    ch_data = eeg[count]
                     # plot timeseries
                     DataFilter.detrend(ch_data, DetrendOperations.CONSTANT.value)
                     try:
@@ -291,11 +296,14 @@ class Streamer:
                     except ValueError:
                         logging.error("Invalid frequency value")
                     self.curves[count].setData(ch_data)
+                    self.filtered_eeg[count] = ch_data
                     # Rescale the plot
                     self.plots[count].setYRange(np.min(ch_data), np.max(ch_data))
 
                 # plot trigger channel
                 trigger = data[-1]
+                self.filtered_eeg[-1] = trigger
+                # log the filtered eeg
                 self.curves[-1].setData(trigger.tolist())
                 self.app.processEvents()
             self.update_quality_indicators(data)
@@ -306,55 +314,88 @@ class Streamer:
         :param stream_name: str, name of the LSL stream
         :param type: str, type of the LSL stream
         """
-        info = pylsl.StreamInfo(name=stream_name, type=type, channel_count=len(self.eeg_channels) + 1,
-                                nominal_srate=self.sampling_rate, channel_format='float32',
-                                source_id=self.board.get_device_name(self.board_id))
-        # Add channel names
-        chs = info.desc().append_child("channels")
-        for ch in layouts[self.board_id]["channels"]:
-            chs.append_child("channel").append_child_value("name", ch)
-        chs.append_child("channel").append_child_value("name", "Trigger")
-        self.outlet = pylsl.StreamOutlet(info)
+        try:
+            info = pylsl.StreamInfo(name=stream_name, type=type, channel_count=len(self.eeg_channels) + 1,
+                                    nominal_srate=self.sampling_rate, channel_format='float32',
+                                    source_id=self.board.get_device_name(self.board_id))
+            # Add channel names
+            chs = info.desc().append_child("channels")
+            for ch in layouts[self.board_id]["channels"]:
+                chs.append_child("channel").append_child_value("name", ch)
+            chs.append_child("channel").append_child_value("name", "Trigger")
+            self.eeg_outlet = pylsl.StreamOutlet(info)
+        except Exception as e:
+            logging.error(f"Error starting LSL stream: {e}")
 
-    def push_lsl_chunk(self, data):
+    def start_lsl_prediction_stream(self, stream_name='mypredictions', type='Markers'):
+        """
+        Start an LSL stream for the prediction data
+        :param stream_name: str, name of the LSL stream
+        :param type: str, type of the LSL stream
+        """
+        try:
+            info = pylsl.StreamInfo(name=stream_name, type=type, channel_count=1,
+                                    nominal_srate=self.sampling_rate, channel_format='float32',
+                                    source_id=self.board.get_device_name(self.board_id))
+            self.prediction_outlet = pylsl.StreamOutlet(info)
+        except Exception as e:
+            logging.error(f"Error starting LSL stream: {e}")
+
+    def push_lsl_eeg_chunk(self, data):
         """
         Push a chunk of data to the LSL stream
         :param data: numpy array of shape (n_channels, n_samples)
         """
-        # Get EEG and Trigger from data and push it to LSL
-        start_eeg = layouts[self.board_id]["eeg_start"]
-        end_eeg = layouts[self.board_id]["eeg_end"]
-        eeg = data[start_eeg:end_eeg]
-        trigger = data[-1]
-        # Horizontal stack EEG and Trigger
-        eeg = np.concatenate((eeg, trigger.reshape(1, len(trigger))), axis=0)
-        ts_channel = self.board.get_timestamp_channel(self.board_id)
-        ts = data[ts_channel]
-        ts_to_lsl_offset = time.time() - pylsl.local_clock()
-        # Get only the seconds part of the timestamp
-        ts = ts - ts_to_lsl_offset
-        self.outlet.push_chunk(eeg.T.tolist(), ts)
-        logging.debug(f"Pushed sample {self.sample_counter} to LSL")
+        try:
+            # Get EEG and Trigger from data and push it to LSL
+            start_eeg = layouts[self.board_id]["eeg_start"]
+            end_eeg = layouts[self.board_id]["eeg_end"]
+            eeg = data[start_eeg:end_eeg]
+            trigger = data[-1]
+            # Horizontal stack EEG and Trigger
+            eeg = np.concatenate((eeg, trigger.reshape(1, len(trigger))), axis=0)
+            ts_channel = self.board.get_timestamp_channel(self.board_id)
+            ts = data[ts_channel]
+            ts_to_lsl_offset = time.time() - pylsl.local_clock()
+            # Get only the seconds part of the timestamp
+            ts = ts - ts_to_lsl_offset
+            self.eeg_outlet.push_chunk(eeg.T.tolist(), ts)
+            logging.debug(f"Pushed sample {self.sample_counter} to LSL")
+        except Exception as e:
+            logging.error(f"Error pushing chunk to LSL: {e}")
 
-    def push_lsl_packet(self, data):
+    def push_lsl_eeg_packet(self, data):
         """
         Push a packet of data to the LSL stream
         :param data: numpy array of shape (n_channels, n_samples)
         """
         # Get EEG and Trigger from data and push it to LSL
-        start_eeg = layouts[self.board_id]["eeg_start"]
-        end_eeg = layouts[self.board_id]["eeg_end"]
-        eeg = data[start_eeg:end_eeg]
-        trigger = data[-1]
-        # Horizontal stack EEG and Trigger
-        eeg = np.concatenate((eeg, trigger.reshape(1, len(trigger))), axis=0)
-        ts_channel = self.board.get_timestamp_channel(self.board_id)
-        ts = data[ts_channel]
-        ts_to_lsl_offset = time.time() - pylsl.local_clock()
-        ts = ts - ts_to_lsl_offset
-        for i in range(eeg.shape[1]):
-            sample = eeg[:, i]
-            self.outlet.push_sample(sample.tolist(), ts[i])
+        try:
+            start_eeg = layouts[self.board_id]["eeg_start"]
+            end_eeg = layouts[self.board_id]["eeg_end"]
+            eeg = data[start_eeg:end_eeg]
+            trigger = data[-1]
+            # Horizontal stack EEG and Trigger
+            eeg = np.concatenate((eeg, trigger.reshape(1, len(trigger))), axis=0)
+            ts_channel = self.board.get_timestamp_channel(self.board_id)
+            ts = data[ts_channel]
+            ts_to_lsl_offset = time.time() - pylsl.local_clock()
+            ts = ts - ts_to_lsl_offset
+            for i in range(eeg.shape[1]):
+                sample = eeg[:, i]
+                self.eeg_outlet.push_sample(sample.tolist(), ts[i])
+        except Exception as e:
+            logging.error(f"Error pushing sample to LSL: {e}")
+
+    def push_lsl_prediction(self, prediction):
+        """
+        Push a prediction to the LSL stream
+        """
+        try:
+            self.prediction_outlet.push_sample([prediction])
+            logging.info("Pushed prediction to LSL", prediction)
+        except Exception as e:
+            logging.error(f"Error pushing prediction to LSL: {e}")
 
     def export_file(self, filename=None, folder='export', format='csv'):
         """
@@ -364,16 +405,19 @@ class Streamer:
         :param format: str, format of the file
         """
         # Compose the file name using the board name and the current time
-        if filename is None:
-            filename = f"{self.board.get_device_name(self.board_id)}_{time.strftime('%Y-%m-%d_%H-%M-%S')}"
-        path = os.path.join(folder, filename + '.' + format)
-        if not os.path.exists(folder):
-            os.makedirs(folder)
-        with open(path, 'w') as self.file:
-            write_header(self.file, self.board_id)
-            data = self.board.get_board_data()
-            if format == 'csv':
-                DataFilter.write_file(data, path, 'a')
+        try:
+            if filename is None:
+                filename = f"{self.board.get_device_name(self.board_id)}_{time.strftime('%Y-%m-%d_%H-%M-%S')}"
+            path = os.path.join(folder, filename + '.' + format)
+            if not os.path.exists(folder):
+                os.makedirs(folder)
+            with open(path, 'w') as self.file:
+                write_header(self.file, self.board_id)
+                data = self.board.get_board_data()
+                if format == 'csv':
+                    DataFilter.write_file(data, path, 'a')
+        except Exception as e:
+            logging.error(f"Error exporting file: {e}")
 
     def write_trigger(self, trigger=1, timestamp=0):
         """
@@ -416,6 +460,7 @@ class Streamer:
         """Internal method to predict the class of the data."""
         try:
             output = self.classifier.predict(data, proba=True)
+            self.push_lsl_prediction(output)
             logging.info(f"Predicted class: {output}")
         except Exception as e:
             logging.error(f"Error predicting class: {e}")
@@ -423,7 +468,7 @@ class Streamer:
     def predict_class(self):
         """Predict the class of the data."""
         try:
-            data = self.board.get_current_board_data(int(self.sampling_rate))
+            data = self.filtered_eeg
             self.executor.submit(self._predict_class, data)
         except Exception as e:
             logging.error(f"Error starting prediction task: {e}")

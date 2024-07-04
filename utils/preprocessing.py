@@ -1,3 +1,5 @@
+import logging
+
 from mne import find_events, Epochs
 from mne.io import RawArray
 import numpy as np
@@ -58,8 +60,12 @@ def extract_epochs(data: RawArray, events, ev_ids=None, reject=None, tmin: float
     :param baseline: tuple, baseline correction
     :return: MNE Epochs object
     """
-    if ev_ids is None:
-        epochs = Epochs(data, events=events, reject=reject, tmin=tmin, tmax=tmax, baseline=baseline, preload=True)
-    else:
-        epochs = Epochs(data, events=events, event_id=ev_ids, reject=reject, tmin=tmin, tmax=tmax, baseline=baseline, preload=True)
-    return epochs
+    try:
+        if ev_ids is None:
+            epochs = Epochs(data, events=events, reject=reject, tmin=tmin, tmax=tmax, baseline=baseline, preload=True)
+        else:
+            epochs = Epochs(data, events=events, event_id=ev_ids, reject=reject, tmin=tmin, tmax=tmax, baseline=baseline, preload=True)
+        return epochs
+    except ValueError:
+        logging.error("All epochs were dropped. Please check the rejection parameters.")
+
