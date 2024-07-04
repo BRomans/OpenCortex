@@ -48,6 +48,7 @@ class Streamer:
         self.plot = plot
         self.save_data = save_data
         self.num_points = self.window_size * self.sampling_rate
+        self.filtered_eeg = np.zeros((len(self.eeg_channels) + 1, self.num_points))
         logging.info(f"Connected to {self.board.get_device_name(self.board.get_board_id())}")
 
         # Initialize the classifier in a new thread
@@ -63,7 +64,7 @@ class Streamer:
 
         # Calculate time interval for prediction
         self.nclasses = 3
-        self.on_time = 500 # ms
+        self.on_time = 150 # ms
         self.off_time = (self.on_time * (self.nclasses - 1))
         logging.info(f"Off time: {self.off_time} ms")
         self.prediction_interval = int(self.on_time + self.off_time)
@@ -98,6 +99,7 @@ class Streamer:
         self.timer.start(self.update_speed_ms)
 
         self.start_lsl_eeg_stream()
+        self.start_lsl_prediction_stream()
         self.app.exec_()
 
     def create_buttons(self):
@@ -294,11 +296,14 @@ class Streamer:
                     except ValueError:
                         logging.error("Invalid frequency value")
                     self.curves[count].setData(ch_data)
+                    self.filtered_eeg[count] = ch_data
                     # Rescale the plot
                     self.plots[count].setYRange(np.min(ch_data), np.max(ch_data))
 
                 # plot trigger channel
                 trigger = data[-1]
+                self.filtered_eeg[-1] = trigger
+                # log the filtered eeg
                 self.curves[-1].setData(trigger.tolist())
                 self.app.processEvents()
             self.update_quality_indicators(data)
@@ -463,7 +468,7 @@ class Streamer:
     def predict_class(self):
         """Predict the class of the data."""
         try:
-            data = self.board.get_current_board_data(int(self.sampling_rate))
+            data = self.filtered_eeg
             self.executor.submit(self._predict_class, data)
         except Exception as e:
             logging.error(f"Error starting prediction task: {e}")
