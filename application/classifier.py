@@ -106,8 +106,8 @@ class Classifier:
         events[:, 2][events[:, 2] != 1] = 3
         if BoardIds.ENOPHONE_BOARD == self.board_id:
             raw, _ = set_eeg_reference(raw, ref_channels='average')
-        filtered = basic_preprocessing_pipeline(raw, lp_freq=2, hp_freq=15, notch_freqs=(50, 60), filter_length=filter_length)
-        eps = extract_epochs(data=filtered, events=events, tmin=self.epoch_start, tmax=self.epoch_end,
+        #filtered = basic_preprocessing_pipeline(raw, lp_freq=2, hp_freq=15, notch_freqs=(50, 60), filter_length=filter_length)
+        eps = extract_epochs(data=raw, events=events, tmin=self.epoch_start, tmax=self.epoch_end,
                              baseline=self.baseline)
         preprocessed = eps.get_data(picks='eeg')[:, :, self.seg_start:self.seg_end]
         labels = eps.events[:, -1]
