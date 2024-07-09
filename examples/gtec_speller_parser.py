@@ -1,9 +1,12 @@
 import pandas as pd
-import os
+import os, sys
 from mne import find_events
 import matplotlib
 import matplotlib.pyplot as plt
 from brainflow import BoardIds, BoardShim
+
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 from utils.layouts import layouts
 from utils.loader import load_data, convert_to_mne
 
