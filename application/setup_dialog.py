@@ -29,6 +29,7 @@ def retrieve_board_id(device_name):
     else:
         return BoardIds.SYNTHETIC_BOARD
 
+
 class SetupDialog(QtWidgets.QDialog):
     def __init__(self, devices, parent=None):
         super(SetupDialog, self).__init__(parent)
@@ -56,14 +57,6 @@ class SetupDialog(QtWidgets.QDialog):
         layout.addWidget(self.window_size_slider)
         layout.addWidget(self.window_size_label)
 
-        # Create input box for update speed
-        self.update_speed_input = QtWidgets.QLineEdit(self)
-        self.update_speed_input.setValidator(QtGui.QIntValidator(50, 2000, self))
-        self.update_speed_input.setText('1000')
-
-        layout.addWidget(QtWidgets.QLabel('Update speed (ms)'))
-        layout.addWidget(self.update_speed_input)
-
         # Add OK and Cancel buttons
         self.button_box = QtWidgets.QDialogButtonBox(QtWidgets.QDialogButtonBox.Ok | QtWidgets.QDialogButtonBox.Cancel,
                                                      self)
@@ -77,6 +70,5 @@ class SetupDialog(QtWidgets.QDialog):
     def get_data(self):
         return (
             self.device_combo.currentText(),
-            self.window_size_slider.value(),
-            self.update_speed_input.text()
+            self.window_size_slider.value()
         )
