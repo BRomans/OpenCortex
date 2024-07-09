@@ -257,7 +257,7 @@ class Streamer:
         p.showAxis('bottom', True)
         p.setMenuEnabled('bottom', False)
         p.setYRange(0, 5)
-        p.setTitle('Event Channel')
+        p.setTitle('Trigger Channel')
         p.setLabel('left', text='Marker')
         p.setLabel('bottom', text='Time (s)')
         # set maximum width to half of the window
