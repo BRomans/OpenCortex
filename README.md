@@ -72,7 +72,8 @@ pip install -r requirements.txt
 ## Usage
 To run any example, use the following command:
 ```bash
-python examples/<example_name>.py
+cd examples
+python <example_name>.py
 ```
 To run the EEG Streamer app, use the following command:
 ```bash

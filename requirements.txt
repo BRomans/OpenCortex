@@ -1,5 +1,5 @@
 pandas
-numpy
+numpy<2.0
 mne
 pyserial
 brainflow

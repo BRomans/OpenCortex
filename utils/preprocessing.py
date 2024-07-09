@@ -1,9 +1,11 @@
+import logging
+
 from mne import find_events, Epochs
 from mne.io import RawArray
 import numpy as np
 
 
-def basic_preprocessing_pipeline(data: RawArray, lp_freq: float = 1, hp_freq: float = 30, notch_freqs: tuple = (50, 60)):
+def basic_preprocessing_pipeline(data: RawArray, lp_freq: float = 1, hp_freq: float = 30, notch_freqs: tuple = (50, 60), filter_length='auto'):
     """
     This function is used to do basic preprocessing on the data.
     :param data: MNE RawArray object
@@ -14,12 +16,11 @@ def basic_preprocessing_pipeline(data: RawArray, lp_freq: float = 1, hp_freq: fl
     """
     # Apply notch filter
     # notch filter at 50 Hz and 60 Hz
-    filtered = data.copy().notch_filter(freqs=notch_freqs[0])
-    filtered = filtered.copy().notch_filter(freqs=notch_freqs[1])
+    filtered = data.copy().notch_filter(freqs=[notch_freqs[0], notch_freqs[1]], filter_length=filter_length, trans_bandwidth=7.0)
 
     # Apply band-pass filtering
-    # band-pass filter between 1 and 30 Hz
-    filtered = filtered.copy().filter(l_freq=lp_freq, h_freq=hp_freq)
+    # band-pass filter
+    filtered = filtered.copy().filter(l_freq=lp_freq, h_freq=hp_freq, filter_length=filter_length, l_trans_bandwidth=1.0, h_trans_bandwidth=3.0)
 
     return filtered
 
@@ -59,8 +60,12 @@ def extract_epochs(data: RawArray, events, ev_ids=None, reject=None, tmin: float
     :param baseline: tuple, baseline correction
     :return: MNE Epochs object
     """
-    if ev_ids is None:
-        epochs = Epochs(data, events=events, reject=reject, tmin=tmin, tmax=tmax, baseline=baseline, preload=True)
-    else:
-        epochs = Epochs(data, events=events, event_id=ev_ids, reject=reject, tmin=tmin, tmax=tmax, baseline=baseline, preload=True)
-    return epochs
+    try:
+        if ev_ids is None:
+            epochs = Epochs(data, events=events, reject=reject, tmin=tmin, tmax=tmax, baseline=baseline, preload=True)
+        else:
+            epochs = Epochs(data, events=events, event_id=ev_ids, reject=reject, tmin=tmin, tmax=tmax, baseline=baseline, preload=True)
+        return epochs
+    except ValueError:
+        logging.error("All epochs were dropped. Please check the rejection parameters.")
+

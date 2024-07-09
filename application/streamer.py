@@ -30,7 +30,7 @@ def write_header(file, board_id):
 
 class Streamer:
 
-    def __init__(self, board, params, plot=True, save_data=True, window_size=1, update_speed_ms=1000, model='LDA'):
+    def __init__(self, board, params, plot=True, save_data=True, window_size=1, model='LDA'):
         time.sleep(window_size)  # Wait for the board to be ready
 
         self.is_streaming = True
@@ -43,11 +43,12 @@ class Streamer:
         self.sampling_rate = BoardShim.get_sampling_rate(self.board_id)
         self.sample_counter = 0
         self.color_thresholds = [(-150, -50, 'yellow'), (-50, 50, 'green'), (50, 150, 'yellow')]
-        self.update_speed_ms = update_speed_ms
+        self.update_speed_ms = int(1000 / window_size)
         self.window_size = window_size
         self.plot = plot
         self.save_data = save_data
         self.num_points = self.window_size * self.sampling_rate
+        self.filtered_eeg = np.zeros((len(self.eeg_channels) + 1, self.num_points))
         logging.info(f"Connected to {self.board.get_device_name(self.board.get_board_id())}")
 
         # Initialize the classifier in a new thread
@@ -63,7 +64,7 @@ class Streamer:
 
         # Calculate time interval for prediction
         self.nclasses = 3
-        self.on_time = 150 # ms
+        self.on_time = 150  # ms
         self.off_time = (self.on_time * (self.nclasses - 1))
         logging.info(f"Off time: {self.off_time} ms")
         self.prediction_interval = int(self.on_time + self.off_time)
@@ -84,13 +85,13 @@ class Streamer:
         self.lsl_thread.stop_predicting.connect(self.stop_prediction)
         self.lsl_thread.start()
 
-        if plot:
+        self.win = pg.GraphicsLayoutWidget(title='Cortex Streamer', size=(1200, 800))
+        self.win.setWindowTitle('Cortex Streamer')
+        self.win.show()
+        self.create_buttons()
+        if self.plot:
             # Create a window
-            self.win = pg.GraphicsLayoutWidget(title='EEG Plot', size=(1200, 800))
-            self.win.setWindowTitle('EEG Plot')
-            self.win.show()
             self._init_timeseries()
-            self.create_buttons()
 
         # Start the PyQt event loop to fetch the raw data
         self.timer = QtCore.QTimer()
@@ -98,6 +99,7 @@ class Streamer:
         self.timer.start(self.update_speed_ms)
 
         self.start_lsl_eeg_stream()
+        self.start_lsl_prediction_stream()
         self.app.exec_()
 
     def create_buttons(self):
@@ -107,6 +109,7 @@ class Streamer:
         self.input_box = QtWidgets.QLineEdit()
         self.input_box.setFixedWidth(100)  # Set a fixed width for the input box
         self.input_box.setPlaceholderText('Trigger value')
+        self.input_box.setText('1')
 
         self.trigger_button = QtWidgets.QPushButton('Send Trigger')
         self.trigger_button.setFixedWidth(100)  # Set a fixed width for the button
@@ -137,17 +140,17 @@ class Streamer:
         self.bandpass_box_low = QtWidgets.QLineEdit()
         self.bandpass_box_low.setPlaceholderText('0')
         self.bandpass_box_low.setText('1')
-        self.bandpass_box_low.setFixedWidth(25)
+        self.bandpass_box_low.setMaximumWidth(30)
         self.bandpass_box_high = QtWidgets.QLineEdit()
         self.bandpass_box_high.setPlaceholderText('0')
         self.bandpass_box_high.setText('40')
-        self.bandpass_box_high.setFixedWidth(25)
+        self.bandpass_box_high.setMaximumWidth(30)
 
         # Input box to configure Notch filter with checkbox to enable/disable it and white label
         self.notch_checkbox = QtWidgets.QCheckBox('Notch filter frequencies (Hz)')
         self.notch_checkbox.setStyleSheet('color: white')
         self.notch_box = QtWidgets.QLineEdit()
-        self.notch_box.setFixedWidth(56)  # Set a fixed width for the input box
+        self.notch_box.setMaximumWidth(60)  # Set a fixed width for the input box
         self.notch_box.setPlaceholderText('0, 0')
         self.notch_box.setText('50, 60')
 
@@ -159,12 +162,15 @@ class Streamer:
         # Create a layout for the bandpass filter
         bandpass_layout = QtWidgets.QHBoxLayout()
         bandpass_layout.addWidget(self.bandpass_checkbox)
+        bandpass_layout.addSpacing(10)  # Add spacing between widgets
         bandpass_layout.addWidget(self.bandpass_box_low)
+        bandpass_layout.addSpacing(10)  # Add spacing between widgets
         bandpass_layout.addWidget(self.bandpass_box_high)
 
         # Create a layout for the notch filter
         notch_layout = QtWidgets.QHBoxLayout()
         notch_layout.addWidget(self.notch_checkbox)
+        notch_layout.addSpacing(10)  # Add spacing between widgets
         notch_layout.addWidget(self.notch_box)
 
         # Create a vertical layout to contain the notch filter and the button layout
@@ -183,7 +189,6 @@ class Streamer:
         center_layout.addWidget(center_label)
         center_layout.addWidget(self.input_box)
         center_layout.addWidget(self.trigger_button)
-        center_layout.addStretch()
 
         # Create a layout for classifier plots
         right_side_label = QtWidgets.QLabel("Classifier")
@@ -192,12 +197,14 @@ class Streamer:
         right_side_layout.addWidget(right_side_label)
         right_side_layout.addWidget(self.roc_button)
         right_side_layout.addWidget(self.confusion_button)
-        right_side_layout.addStretch()
 
         # Horizontal layout to contain the classifier buttons
         horizontal_container = QtWidgets.QHBoxLayout()
+        horizontal_container.addSpacing(20)
         horizontal_container.addLayout(left_side_layout)
+        horizontal_container.addSpacing(20)
         horizontal_container.addLayout(center_layout)
+        horizontal_container.addSpacing(20)
         horizontal_container.addLayout(right_side_layout)
 
         # Create a widget to contain the layout
@@ -232,7 +239,7 @@ class Streamer:
             p.setMenuEnabled('bottom', False)
             p.setMinimumWidth(400)
             p.setTitle(layouts[self.board_id]["channels"][i])  # Set title to channel name for each plot
-            p.setLabel('left', text='Amplitude (uV) ')  # Label for y-axis
+            p.setLabel('left', text='Amp (uV) ')  # Label for y-axis
             p.setLabel('bottom', text='Time (s)')  # Label for x-axis
             self.plots.append(p)
             curve = p.plot(pen=colors[i])  # Set a specific color for each curve
@@ -250,9 +257,12 @@ class Streamer:
         p.showAxis('bottom', True)
         p.setMenuEnabled('bottom', False)
         p.setYRange(0, 5)
-        p.setTitle('Trigger')
-        p.setLabel('left', text='Trigger')
+        p.setTitle('Trigger Channel')
+        p.setLabel('left', text='Marker')
         p.setLabel('bottom', text='Time (s)')
+        # set maximum width to half of the window
+        p.setMinimumWidth(self.win.width() / 2)
+
         self.plots.append(p)
         curve = p.plot(pen='red')
         self.curves.append(curve)
@@ -263,41 +273,51 @@ class Streamer:
             if self.window_size == 0:
                 raise ValueError("Window size cannot be zero")
             data = self.board.get_current_board_data(num_samples=self.num_points)
-            self.push_lsl_chunk(data)
+            start_eeg = layouts[self.board_id]["eeg_start"]
+            end_eeg = layouts[self.board_id]["eeg_end"]
+            eeg = data[start_eeg:end_eeg]
             self.sample_counter += 1
             # logging.info(f"Pulling sample {self.sample_counter}: {data.shape}")
-            if self.plot:
-                for count, channel in enumerate(self.eeg_channels):
-                    ch_data = data[channel]
-                    # plot timeseries
-                    DataFilter.detrend(ch_data, DetrendOperations.CONSTANT.value)
-                    try:
-                        if self.bandpass_checkbox.isChecked():
-                            low = float(self.bandpass_box_low.text())
-                            high = float(self.bandpass_box_high.text())
-                            DataFilter.perform_bandpass(ch_data, self.sampling_rate, low, high, 4,
+
+            for count, channel in enumerate(self.eeg_channels):
+                ch_data = eeg[count]
+                # plot timeseries
+                DataFilter.detrend(ch_data, DetrendOperations.CONSTANT.value)
+                try:
+                    if self.bandpass_checkbox.isChecked():
+                        low = float(self.bandpass_box_low.text())
+                        high = float(self.bandpass_box_high.text())
+                        DataFilter.perform_bandpass(ch_data, self.sampling_rate, low, high, 4,
+                                                    FilterTypes.BUTTERWORTH_ZERO_PHASE, 0)
+                except ValueError:
+                    logging.error("Invalid frequency value")
+                try:
+                    if self.notch_checkbox.isChecked():
+                        freqs = self.notch_box.text().split(',')
+                        for freq in freqs:
+                            start_freq = float(freq) - 2.0
+                            end_freq = float(freq) + 2.0
+                            DataFilter.perform_bandstop(ch_data, self.sampling_rate, start_freq, end_freq, 4,
                                                         FilterTypes.BUTTERWORTH_ZERO_PHASE, 0)
-                    except ValueError:
-                        logging.error("Invalid frequency value")
-                    try:
-                        if self.notch_checkbox.isChecked():
-                            freqs = self.notch_box.text().split(',')
-                            for freq in freqs:
-                                start_freq = float(freq) - 2.0
-                                end_freq = float(freq) + 2.0
-                                DataFilter.perform_bandstop(ch_data, self.sampling_rate, start_freq, end_freq, 4,
-                                                            FilterTypes.BUTTERWORTH_ZERO_PHASE, 0)
-                    except ValueError:
-                        logging.error("Invalid frequency value")
+                except ValueError:
+                    logging.error("Invalid frequency value")
+                if self.plot:
                     self.curves[count].setData(ch_data)
                     # Rescale the plot
                     self.plots[count].setYRange(np.min(ch_data), np.max(ch_data))
+                self.filtered_eeg[count] = ch_data
 
+            trigger = data[-1]
+            ts_channel = self.board.get_timestamp_channel(self.board_id)
+            ts = data[ts_channel]
+            self.filtered_eeg[-1] = trigger
+            if self.plot:
                 # plot trigger channel
-                trigger = data[-1]
                 self.curves[-1].setData(trigger.tolist())
-                self.app.processEvents()
-            self.update_quality_indicators(data)
+                self.update_quality_indicators(self.filtered_eeg)
+            self.app.processEvents()
+            self.push_lsl_eeg_chunk(self.filtered_eeg, ts)
+
 
     def start_lsl_eeg_stream(self, stream_name='myeeg', type='EEG'):
         """
@@ -305,55 +325,87 @@ class Streamer:
         :param stream_name: str, name of the LSL stream
         :param type: str, type of the LSL stream
         """
-        info = pylsl.StreamInfo(name=stream_name, type=type, channel_count=len(self.eeg_channels) + 1,
-                                nominal_srate=self.sampling_rate, channel_format='float32',
-                                source_id=self.board.get_device_name(self.board_id))
-        # Add channel names
-        chs = info.desc().append_child("channels")
-        for ch in layouts[self.board_id]["channels"]:
-            chs.append_child("channel").append_child_value("name", ch)
-        chs.append_child("channel").append_child_value("name", "Trigger")
-        self.outlet = pylsl.StreamOutlet(info)
+        try:
+            info = pylsl.StreamInfo(name=stream_name, type=type, channel_count=len(self.eeg_channels) + 1,
+                                    nominal_srate=self.sampling_rate, channel_format='float32',
+                                    source_id=self.board.get_device_name(self.board_id))
+            # Add channel names
+            chs = info.desc().append_child("channels")
+            for ch in layouts[self.board_id]["channels"]:
+                chs.append_child("channel").append_child_value("name", ch)
+            chs.append_child("channel").append_child_value("name", "Trigger")
+            self.eeg_outlet = pylsl.StreamOutlet(info)
+        except Exception as e:
+            logging.error(f"Error starting LSL stream: {e}")
 
-    def push_lsl_chunk(self, data):
+    def start_lsl_prediction_stream(self, stream_name='mypredictions', type='Markers'):
+        """
+        Start an LSL stream for the prediction data
+        :param stream_name: str, name of the LSL stream
+        :param type: str, type of the LSL stream
+        """
+        try:
+            info = pylsl.StreamInfo(name=stream_name, type=type, channel_count=1,
+                                    nominal_srate=self.sampling_rate, channel_format='float32',
+                                    source_id=self.board.get_device_name(self.board_id))
+            self.prediction_outlet = pylsl.StreamOutlet(info)
+        except Exception as e:
+            logging.error(f"Error starting LSL stream: {e}")
+
+    def push_lsl_eeg_chunk(self, data, ts=0):
         """
         Push a chunk of data to the LSL stream
         :param data: numpy array of shape (n_channels, n_samples)
+        :param ts: float, timestamp value
         """
-        # Get EEG and Trigger from data and push it to LSL
-        start_eeg = layouts[self.board_id]["eeg_start"]
-        end_eeg = layouts[self.board_id]["eeg_end"]
-        eeg = data[start_eeg:end_eeg]
-        trigger = data[-1]
-        # Horizontal stack EEG and Trigger
-        eeg = np.concatenate((eeg, trigger.reshape(1, len(trigger))), axis=0)
-        ts_channel = self.board.get_timestamp_channel(self.board_id)
-        ts = data[ts_channel]
-        ts_to_lsl_offset = time.time() - pylsl.local_clock()
-        # Get only the seconds part of the timestamp
-        ts = ts - ts_to_lsl_offset
-        self.outlet.push_chunk(eeg.T.tolist(), ts)
-        logging.debug(f"Pushed sample {self.sample_counter} to LSL")
+        try:
+            # Get EEG and Trigger from data and push it to LSL
+            start_eeg = layouts[self.board_id]["eeg_start"]
+            end_eeg = layouts[self.board_id]["eeg_end"]
+            eeg = data[start_eeg:end_eeg]
+            trigger = data[-1]
+            # Horizontal stack EEG and Trigger
+            eeg = np.concatenate((eeg, trigger.reshape(1, len(trigger))), axis=0)
+            ts_to_lsl_offset = time.time() - pylsl.local_clock()
+            # Get only the seconds part of the timestamp
+            ts = ts - ts_to_lsl_offset
+            self.eeg_outlet.push_chunk(eeg.T.tolist(), ts)
+            logging.debug(f"Pushed sample {self.sample_counter} to LSL")
+        except Exception as e:
+            logging.error(f"Error pushing chunk to LSL: {e}")
 
-    def push_lsl_packet(self, data):
+    def push_lsl_eeg_packet(self, data):
         """
         Push a packet of data to the LSL stream
         :param data: numpy array of shape (n_channels, n_samples)
         """
         # Get EEG and Trigger from data and push it to LSL
-        start_eeg = layouts[self.board_id]["eeg_start"]
-        end_eeg = layouts[self.board_id]["eeg_end"]
-        eeg = data[start_eeg:end_eeg]
-        trigger = data[-1]
-        # Horizontal stack EEG and Trigger
-        eeg = np.concatenate((eeg, trigger.reshape(1, len(trigger))), axis=0)
-        ts_channel = self.board.get_timestamp_channel(self.board_id)
-        ts = data[ts_channel]
-        ts_to_lsl_offset = time.time() - pylsl.local_clock()
-        ts = ts - ts_to_lsl_offset
-        for i in range(eeg.shape[1]):
-            sample = eeg[:, i]
-            self.outlet.push_sample(sample.tolist(), ts[i])
+        try:
+            start_eeg = layouts[self.board_id]["eeg_start"]
+            end_eeg = layouts[self.board_id]["eeg_end"]
+            eeg = data[start_eeg:end_eeg]
+            trigger = data[-1]
+            # Horizontal stack EEG and Trigger
+            eeg = np.concatenate((eeg, trigger.reshape(1, len(trigger))), axis=0)
+            ts_channel = self.board.get_timestamp_channel(self.board_id)
+            ts = data[ts_channel]
+            ts_to_lsl_offset = time.time() - pylsl.local_clock()
+            ts = ts - ts_to_lsl_offset
+            for i in range(eeg.shape[1]):
+                sample = eeg[:, i]
+                self.eeg_outlet.push_sample(sample.tolist(), ts[i])
+        except Exception as e:
+            logging.error(f"Error pushing sample to LSL: {e}")
+
+    def push_lsl_prediction(self, prediction):
+        """
+        Push a prediction to the LSL stream
+        """
+        try:
+            self.prediction_outlet.push_sample([prediction])
+            logging.info("Pushed prediction to LSL", prediction)
+        except Exception as e:
+            logging.error(f"Error pushing prediction to LSL: {e}")
 
     def export_file(self, filename=None, folder='export', format='csv'):
         """
@@ -363,16 +415,19 @@ class Streamer:
         :param format: str, format of the file
         """
         # Compose the file name using the board name and the current time
-        if filename is None:
-            filename = f"{self.board.get_device_name(self.board_id)}_{time.strftime('%Y-%m-%d_%H-%M-%S')}"
-        path = os.path.join(folder, filename + '.' + format)
-        if not os.path.exists(folder):
-            os.makedirs(folder)
-        with open(path, 'w') as self.file:
-            write_header(self.file, self.board_id)
-            data = self.board.get_board_data()
-            if format == 'csv':
-                DataFilter.write_file(data, path, 'a')
+        try:
+            if filename is None:
+                filename = f"{self.board.get_device_name(self.board_id)}_{time.strftime('%Y-%m-%d_%H-%M-%S')}"
+            path = os.path.join(folder, filename + '.' + format)
+            if not os.path.exists(folder):
+                os.makedirs(folder)
+            with open(path, 'w') as self.file:
+                write_header(self.file, self.board_id)
+                data = self.board.get_board_data()
+                if format == 'csv':
+                    DataFilter.write_file(data, path, 'a')
+        except Exception as e:
+            logging.error(f"Error exporting file: {e}")
 
     def write_trigger(self, trigger=1, timestamp=0):
         """
@@ -414,7 +469,8 @@ class Streamer:
     def _predict_class(self, data):
         """Internal method to predict the class of the data."""
         try:
-            output = self.classifier.predict(data, proba=False)
+            output = self.classifier.predict(data, proba=True)
+            self.push_lsl_prediction(output)
             logging.info(f"Predicted class: {output}")
         except Exception as e:
             logging.error(f"Error predicting class: {e}")
@@ -422,7 +478,7 @@ class Streamer:
     def predict_class(self):
         """Predict the class of the data."""
         try:
-            data = self.board.get_current_board_data(int(self.prediction_datapoints) + 10)
+            data = self.filtered_eeg
             self.executor.submit(self._predict_class, data)
         except Exception as e:
             logging.error(f"Error starting prediction task: {e}")

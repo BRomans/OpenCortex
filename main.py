@@ -48,27 +48,23 @@ def main():
 
         dialog = SetupDialog(devices)
         window_size = 0
-        update_speed = 0
         if dialog.exec_() == QtWidgets.QDialog.Accepted:
-            selected_device, window_size, update_speed = dialog.get_data()
+            selected_device, window_size = dialog.get_data()
             logging.info(f"Selected Device: {selected_device}")
             logging.info(f"Window Size: {window_size} seconds")
-            logging.info(f"Update Speed: {update_speed} ms")
             args.serial_number = selected_device
             args.board_id = retrieve_board_id(args.serial_number)
     except BaseException as e:
         logging.info('Impossible to connect device', e)
         return
     window_size = 1 if window_size == 0 else int(window_size)
-    update_speed = 1000 if update_speed == 0 else int(update_speed)
 
     params.serial_number = args.serial_number
     board_shim = BoardShim(args.board_id, params)
     try:
         board_shim.prepare_session()
         board_shim.start_stream(streamer_params=args.streamer_params)
-        streamer = Streamer(board_shim, params=params, plot=True, save_data=True, window_size=window_size,
-                            update_speed_ms=update_speed)
+        streamer = Streamer(board_shim, params=params, plot=True, save_data=True, window_size=window_size)
     except BaseException:
         logging.warning('Exception', exc_info=True)
     finally:

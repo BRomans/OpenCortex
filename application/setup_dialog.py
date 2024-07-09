@@ -12,16 +12,23 @@ def retrieve_eeg_devices():
     enophone_devices = list(filter(lambda x: re.search(r'enophone', x[1]), saved_devices))
     logging.info(f"Found Enophones: {enophone_devices} ")
     synthetic_devices = [('00:00:00:00:00:00', 'Synthetic Board', '0000')]
-    all_devices = synthetic_devices + unicorn_devices + enophone_devices
+    ant_neuro_devices = [('ANT_NEURO_225', 'ANT Neuro 225', '0000'), ('ANT_NEURO_411', 'ANT Neuro 411', '0000')]
+    all_devices = synthetic_devices + unicorn_devices + enophone_devices + ant_neuro_devices
     return all_devices
 
 
 def retrieve_board_id(device_name):
     if re.search(r'UN-\d{4}.\d{2}.\d{2}', device_name):
         return BoardIds.UNICORN_BOARD
-    if re.search(r'enophone', device_name):
+    elif re.search(r'(?i)enophone', device_name):
         return BoardIds.ENOPHONE_BOARD
-    return BoardIds.SYNTHETIC_BOARD
+    elif re.search(r'(?i)ANT.NEURO.225', device_name):
+        return BoardIds.ANT_NEURO_EE_225_BOARD
+    elif re.search(r'(?i)ANT.NEURO.411', device_name):
+        return BoardIds.ANT_NEURO_EE_411_BOARD
+    else:
+        return BoardIds.SYNTHETIC_BOARD
+
 
 class SetupDialog(QtWidgets.QDialog):
     def __init__(self, devices, parent=None):
@@ -50,14 +57,6 @@ class SetupDialog(QtWidgets.QDialog):
         layout.addWidget(self.window_size_slider)
         layout.addWidget(self.window_size_label)
 
-        # Create input box for update speed
-        self.update_speed_input = QtWidgets.QLineEdit(self)
-        self.update_speed_input.setValidator(QtGui.QIntValidator(50, 2000, self))
-        self.update_speed_input.setText('1000')
-
-        layout.addWidget(QtWidgets.QLabel('Update speed (ms)'))
-        layout.addWidget(self.update_speed_input)
-
         # Add OK and Cancel buttons
         self.button_box = QtWidgets.QDialogButtonBox(QtWidgets.QDialogButtonBox.Ok | QtWidgets.QDialogButtonBox.Cancel,
                                                      self)
@@ -71,6 +70,5 @@ class SetupDialog(QtWidgets.QDialog):
     def get_data(self):
         return (
             self.device_combo.currentText(),
-            self.window_size_slider.value(),
-            self.update_speed_input.text()
+            self.window_size_slider.value()
         )
