@@ -16,16 +16,10 @@ def load_data(path, header=None, fs=250, board=None,  skiprows=5, delimiter=',')
 
     start_eeg = layouts[board]["eeg_start"]
     end_eeg = layouts[board]["eeg_end"]
-    if header == "unity":
-        df = pd.read_csv(path, names=layouts[board][header], skiprows=skiprows * fs, delimiter=delimiter)
-        trigger = np.array(df.id)
-    if header == "uni_slim":
-        df = pd.read_csv(path, names=layouts[board]["slim"], skiprows=skiprows * fs, delimiter=delimiter)
-        trigger = np.array(df.STI)
-    else:
-        df = pd.read_csv(path, names=layouts[board]["header"], skiprows=skiprows * fs, delimiter=delimiter)
-        trigger = np.array(df.Trigger)
+    df = pd.read_csv(path, names=layouts[board][header], skiprows=skiprows * fs, delimiter=delimiter)
     eeg = df.iloc[:, start_eeg:end_eeg].to_numpy()
+    trigger = np.array(df.Trigger) if header != "unity" else np.array(df.id)
+
     return eeg, trigger, df
 
 

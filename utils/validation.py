@@ -5,7 +5,8 @@ from sklearn.metrics import confusion_matrix
 from sklearn.model_selection import cross_val_predict, StratifiedKFold
 from sklearn.metrics import roc_curve, auc
 
-feat_colors = ['blue', 'red', 'orange', 'purple', 'gray', 'black', 'brown', 'pink']
+feat_colors = ['blue', 'red', 'orange', 'purple', 'gray', 'black', 'brown', 'pink',
+               'green', 'cyan', 'magenta', 'yellow', 'olive', 'lime', 'teal', 'indigo', 'violet', 'salmon', 'gold']
 
 
 def plot_feature_vector(x, x_flat, seg_len=200, epoch=1):
