@@ -1,5 +1,6 @@
 # Cortex Streamer
-CortexStreamer is an EEG Streamer a fully-featured app to stream EEG data and markers
+CortexStreamer is a fully-featured EEG streaming app to stream EEG data and markers.
+
 It includes:
 - a GUI to plot EEG in real-time
 - signal filters (visualization only)
@@ -9,8 +10,7 @@ It includes:
 - an outlet stream that can send raw EEG to an external source
 - a general-purpose classifier class that can be initialized with any model from Scikit-Learn
 - cross-validation plots with ROC curve and Confusion Matrix
-
-It includes educational notebooks to analyse EEG data using the library MNE and to perform classification tasks using Scikit-Learn.
+- educational Jupyter notebooks to analyse EEG data using the library MNE and to perform classification tasks using Scikit-Learn.
 
 
 ## Table of Contents
@@ -19,6 +19,7 @@ It includes educational notebooks to analyse EEG data using the library MNE and 
 - [Getting Started](#getting-started)
   - [Prerequisites](#prerequisites)
   - [Installation](#installation)
+  - [Issues](#issues)
 - [Usage](#usage)
 - [Examples](#examples)
 - [Notebooks](#notebooks)
@@ -41,6 +42,7 @@ These instructions will help you get a copy of the project up and running on you
 List any software or dependencies that need to be installed before setting up the project.
 
 - Python 3.6 or higher
+- [Microsoft C++ Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/)
 
 ```bash
 # Example: 
@@ -68,6 +70,9 @@ venv\Scripts\activate      # On Windows
 ```bash
 pip install -r requirements.txt
 ```
+
+4. Issues
+If you encounter issues installing PyBluez, please refer to the latest comments on the project [issues page](https://github.com/pybluez/pybluez/issues/431).
 
 ## Usage
 To run any example, use the following command:
