@@ -78,18 +78,17 @@ def extract_epochs(data: RawArray, events, ev_ids=None, reject=None, tmin: float
 def make_overlapping_epochs(data: RawArray, events, tmin: float = -0.1, tmax: float = 0.5, baseline=None, fs: int = 250):
     pre_event_samples = int(-tmin * fs)
     post_event_samples = int(tmax * fs)
-    logging.info(f'Data shape: {data.get_data().shape}')
-    # Step 3: Extract epochs manually
+    # Extract epochs manually
     epochs_data = []
     for event in events:
         start_sample = event[0] - pre_event_samples
         end_sample = event[0] + post_event_samples
         epoch = data[:, start_sample:end_sample][0]
-        logging.info(f"Epoch shape: {epoch.shape}")
+        logging.debug(f"Epoch shape: {epoch.shape}")
         epochs_data.append(epoch)
     epochs_data = np.array(epochs_data)
-    logging.info(f"Epochs shape: {epochs_data.shape}")
+    logging.debug(f"Epochs shape: {epochs_data.shape}")
 
-    # Step 4: Create an MNE EpochsArray
+    # Create an MNE EpochsArray
     info = create_info(ch_names=data.ch_names, sfreq=fs, ch_types='eeg')
     return EpochsArray(data=epochs_data, info=info, events=events, tmin=tmin, baseline=baseline)

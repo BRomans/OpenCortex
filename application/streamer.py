@@ -1,6 +1,6 @@
+import json
 import threading
 import time
-import matplotlib
 import numpy as np
 import logging
 import pyqtgraph as pg
@@ -14,8 +14,7 @@ from pyqtgraph import ScatterPlotItem, mkBrush
 from brainflow.board_shim import BoardShim
 from brainflow.data_filter import DataFilter, FilterTypes, DetrendOperations
 from concurrent.futures import ThreadPoolExecutor
-
-
+from utils.net_utils import convert_to_serializable
 
 # 16 Color ascii codes for the 16 EEG channels
 colors = ["blue", "green", "yellow", "purple", "orange", "pink", "brown", "gray",
@@ -351,7 +350,7 @@ class Streamer:
         """
         try:
             info = pylsl.StreamInfo(name=stream_name, type=type, channel_count=1,
-                                    nominal_srate=self.sampling_rate, channel_format='float32',
+                                    nominal_srate=self.sampling_rate, channel_format='string',
                                     source_id=self.board.get_device_name(self.board_id))
             self.prediction_outlet = pylsl.StreamOutlet(info)
         except Exception as e:
@@ -407,8 +406,10 @@ class Streamer:
         Push a prediction to the LSL stream
         """
         try:
-            self.prediction_outlet.push_sample(prediction)
-            logging.info("Pushed prediction to LSL", prediction)
+            # Serialize the dictionary to a JSON string
+            prediction_json = json.dumps(prediction, default=convert_to_serializable)
+            self.prediction_outlet.push_sample([prediction_json])
+            logging.info(f"Pushed prediction to LSL: {prediction}")
         except Exception as e:
             logging.error(f"Error pushing prediction to LSL: {e}")
 
@@ -481,7 +482,7 @@ class Streamer:
     def _predict_class(self, data):
         """Internal method to predict the class of the data."""
         try:
-            output = self.classifier.predict(data, proba=True)
+            output = self.classifier.predict(data, proba=True, group=True)
             self.push_lsl_prediction(output)
             logging.info(f"Predicted class: {output}")
         except Exception as e:
