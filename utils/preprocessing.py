@@ -1,11 +1,12 @@
 import logging
 
-from mne import find_events, Epochs
+from mne import find_events, Epochs, create_info, EpochsArray
 from mne.io import RawArray
 import numpy as np
 
 
-def basic_preprocessing_pipeline(data: RawArray, lp_freq: float = 1, hp_freq: float = 30, notch_freqs: tuple = (50, 60), filter_length='auto'):
+def basic_preprocessing_pipeline(data: RawArray, lp_freq: float = 1, hp_freq: float = 30, notch_freqs: tuple = (50, 60),
+                                 filter_length='auto'):
     """
     This function is used to do basic preprocessing on the data.
     :param data: MNE RawArray object
@@ -16,11 +17,13 @@ def basic_preprocessing_pipeline(data: RawArray, lp_freq: float = 1, hp_freq: fl
     """
     # Apply notch filter
     # notch filter at 50 Hz and 60 Hz
-    filtered = data.copy().notch_filter(freqs=[notch_freqs[0], notch_freqs[1]], filter_length=filter_length, trans_bandwidth=7.0)
+    filtered = data.copy().notch_filter(freqs=[notch_freqs[0], notch_freqs[1]], filter_length=filter_length,
+                                        trans_bandwidth=7.0)
 
     # Apply band-pass filtering
     # band-pass filter
-    filtered = filtered.copy().filter(l_freq=lp_freq, h_freq=hp_freq, filter_length=filter_length, l_trans_bandwidth=1.0, h_trans_bandwidth=3.0)
+    filtered = filtered.copy().filter(l_freq=lp_freq, h_freq=hp_freq, filter_length=filter_length,
+                                      l_trans_bandwidth=1.0, h_trans_bandwidth=3.0)
 
     return filtered
 
@@ -48,7 +51,8 @@ def extract_events(data: RawArray, stim_channel='STI', ev_ids=None, event_color=
     return events, ev_ids, event_color
 
 
-def extract_epochs(data: RawArray, events, ev_ids=None, reject=None, tmin: float = -0.6, tmax: float = 0.8, baseline: tuple = (-.6, -.1)):
+def extract_epochs(data: RawArray, events, ev_ids=None, reject=None, tmin: float = -0.6, tmax: float = 0.8,
+                   baseline: tuple = (-.6, -.1)):
     """
     This function is used to extract epochs from the data.
     :param data: MNE RawArray object
@@ -64,8 +68,28 @@ def extract_epochs(data: RawArray, events, ev_ids=None, reject=None, tmin: float
         if ev_ids is None:
             epochs = Epochs(data, events=events, reject=reject, tmin=tmin, tmax=tmax, baseline=baseline, preload=True)
         else:
-            epochs = Epochs(data, events=events, event_id=ev_ids, reject=reject, tmin=tmin, tmax=tmax, baseline=baseline, preload=True)
+            epochs = Epochs(data, events=events, event_id=ev_ids, reject=reject, tmin=tmin, tmax=tmax,
+                            baseline=baseline, preload=True)
         return epochs
     except ValueError:
         logging.error("All epochs were dropped. Please check the rejection parameters.")
 
+
+def make_overlapping_epochs(data: RawArray, events, tmin: float = -0.1, tmax: float = 0.5, baseline=None, fs: int = 250):
+    pre_event_samples = int(-tmin * fs)
+    post_event_samples = int(tmax * fs)
+    logging.info(f'Data shape: {data.get_data().shape}')
+    # Step 3: Extract epochs manually
+    epochs_data = []
+    for event in events:
+        start_sample = event[0] - pre_event_samples
+        end_sample = event[0] + post_event_samples
+        epoch = data[:, start_sample:end_sample][0]
+        logging.info(f"Epoch shape: {epoch.shape}")
+        epochs_data.append(epoch)
+    epochs_data = np.array(epochs_data)
+    logging.info(f"Epochs shape: {epochs_data.shape}")
+
+    # Step 4: Create an MNE EpochsArray
+    info = create_info(ch_names=data.ch_names, sfreq=fs, ch_types='eeg')
+    return EpochsArray(data=epochs_data, info=info, events=events, tmin=tmin, baseline=baseline)
