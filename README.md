@@ -72,6 +72,12 @@ pip install -r requirements.txt
 ```
 
 4. Issues
+The base requirement for bluetooth scanning is `pybluez2`, which is a Python wrapper for the BlueZ Linux Bluetooth stack.
+There might be [issues](https://stackoverflow.com/questions/74196428/pip-install-pybluez2-package-directory-bluetooth-macos-does-not-exist) installing the package from pip, so it is recommended to install it from the source.
+```bash
+pip install git+https://github.com/airgproducts/pybluez2.git@0.46
+```
+Alternatively, you can install `pybluez`, which should silently be called instead of `pybluez2`.
 If you encounter issues installing PyBluez, please refer to the latest comments on the project [issues page](https://github.com/pybluez/pybluez/issues/431).
 
 ## Usage
