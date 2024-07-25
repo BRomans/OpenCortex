@@ -11,9 +11,16 @@ feat_colors = ['blue', 'red', 'orange', 'purple', 'gray', 'black', 'brown', 'pin
 
 def normalize(y, method='z-score'):
     if method == 'z-score':
-        return (y - np.mean(y)) / np.std(y)
+        std_y = np.std(y)
+        if std_y == 0:
+            return np.zeros_like(y)
+        return (y - np.mean(y)) / std_y
     elif method == 'min-max':
-        return (y - np.min(y)) / (np.max(y) - np.min(y))
+        min_y = np.min(y)
+        max_y = np.max(y)
+        if max_y == min_y:
+            return np.zeros_like(y)
+        return (y - min_y) / (max_y - min_y)
     elif method == 'p-value':
         return 1 - y
 
@@ -32,7 +39,7 @@ def plot_feature_vector(x, x_flat, seg_len=200, epoch=1):
         plt.plot(offset, x[epoch, i], label='Channel ' + str(i + 1), color=feat_colors[i])
     plt.plot(x_flat[epoch, :], label='Feature Vector', color='green', linestyle='dotted', linewidth=2)
     plt.legend(loc='upper right')
-    plt.xlim(0, 800)
+    plt.xlim(0, 1000)
     plt.xlabel('Time (ms)')
     plt.ylabel('Amplitude (uV)')
     plt.show()
