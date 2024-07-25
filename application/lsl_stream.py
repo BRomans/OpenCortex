@@ -60,7 +60,7 @@ class LSLStreamThread(QThread):
                     logging.info(f"Stop application trigger {marker[0]} written at {date_time}")
                 else:
                     # Emit the new sample data
-                    logging.info(f"New sample: {marker[0]} after {delta_ts}")
+                    logging.debug(f"New sample: {marker[0]} after {delta_ts}")
                     self.new_sample.emit(marker[0], timestamp)
             except Exception as e:
                 logging.error(f"Error while reading LSL stream: {e}")

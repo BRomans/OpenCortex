@@ -5,7 +5,17 @@ from sklearn.metrics import confusion_matrix
 from sklearn.model_selection import cross_val_predict, StratifiedKFold
 from sklearn.metrics import roc_curve, auc
 
-feat_colors = ['blue', 'red', 'orange', 'purple', 'gray', 'black', 'brown', 'pink']
+feat_colors = ['blue', 'red', 'orange', 'purple', 'gray', 'black', 'brown', 'pink',
+               'green', 'cyan', 'magenta', 'yellow', 'olive', 'lime', 'teal', 'indigo', 'violet', 'salmon', 'gold']
+
+
+def normalize(y, method='z-score'):
+    if method == 'z-score':
+        return (y - np.mean(y)) / np.std(y)
+    elif method == 'min-max':
+        return (y - np.min(y)) / (np.max(y) - np.min(y))
+    elif method == 'p-value':
+        return 1 - y
 
 
 def plot_feature_vector(x, x_flat, seg_len=200, epoch=1):
@@ -68,7 +78,8 @@ def plot_confusion_matrix(y_true, y_pred, classes, normalize=False, title='Confu
     plt.show()
 
 
-def plot_cross_validated_confusion_matrix(X, y, clf, cv, classes=['Target', 'Non-Target'], normalize=False, title='Confusion Matrix',
+def plot_cross_validated_confusion_matrix(X, y, clf, cv, classes=['Target', 'Non-Target'], normalize=False,
+                                          title='Confusion Matrix',
                                           cmap=plt.cm.Blues):
     """ Plot the cross-validated confusion matrix
     :param X: numpy array of shape (n_samples, n_features)

@@ -1,6 +1,6 @@
+import json
 import threading
 import time
-import matplotlib
 import numpy as np
 import logging
 import pyqtgraph as pg
@@ -14,8 +14,7 @@ from pyqtgraph import ScatterPlotItem, mkBrush
 from brainflow.board_shim import BoardShim
 from brainflow.data_filter import DataFilter, FilterTypes, DetrendOperations
 from concurrent.futures import ThreadPoolExecutor
-
-matplotlib.use("Qt5Agg")
+from utils.net_utils import convert_to_serializable
 
 # 16 Color ascii codes for the 16 EEG channels
 colors = ["blue", "green", "yellow", "purple", "orange", "pink", "brown", "gray",
@@ -34,6 +33,8 @@ class Streamer:
         time.sleep(window_size)  # Wait for the board to be ready
 
         self.is_streaming = True
+        self.prediction_mode = False
+        self.first_prediction = True
         self.params = params
         self.initial_ts = time.time()
         logging.info("Searching for devices...")
@@ -63,26 +64,26 @@ class Streamer:
         self.app = QtWidgets.QApplication([])
 
         # Calculate time interval for prediction
-        self.nclasses = 3
-        self.on_time = 150  # ms
+        self.nclasses = 4
+        self.on_time = 250  # ms
         self.off_time = (self.on_time * (self.nclasses - 1))
-        logging.info(f"Off time: {self.off_time} ms")
-        self.prediction_interval = int(self.on_time + self.off_time)
-        logging.info(f"Prediction interval: {self.prediction_interval} ms")
+        logging.debug(f"Off time: {self.off_time} ms")
+        self.prediction_interval = int(self.on_time + self.off_time) * 2 # we take double the time, so we can loop on it
+        logging.debug(f"Prediction interval: {self.prediction_interval} ms")
         # calculate how many datapoints based on the sampling rate
         self.prediction_datapoints = int(self.prediction_interval * self.sampling_rate / 1000)
-        logging.info(f"Prediction interval in datapoints: {self.prediction_datapoints}")
+        logging.debug(f"Prediction interval in datapoints: {self.prediction_datapoints}")
 
         logging.info("Looking for an LSL stream...")
         # Connect to the LSL stream threads
         self.prediction_timer = QtCore.QTimer()
-        self.prediction_timer.timeout.connect(self.predict_class)
+        #self.prediction_timer.timeout.connect(self.predict_class)
         self.lsl_thread = LSLStreamThread()
         self.lsl_thread.new_sample.connect(self.write_trigger)
         self.lsl_thread.set_train_start.connect(self.set_train_start)
         self.lsl_thread.start_train.connect(self.train_classifier)
-        self.lsl_thread.start_predicting.connect(self.start_prediction)
-        self.lsl_thread.stop_predicting.connect(self.stop_prediction)
+        self.lsl_thread.start_predicting.connect(self.set_prediction_mode)
+        self.lsl_thread.stop_predicting.connect(self.set_prediction_mode)
         self.lsl_thread.start()
 
         self.win = pg.GraphicsLayoutWidget(title='Cortex Streamer', size=(1200, 800))
@@ -219,6 +220,11 @@ class Streamer:
         # Set the main layout for the window
         self.win.setLayout(main_layout)
 
+    def set_prediction_mode(self):
+        """Set the BCI running status"""
+        self.prediction_mode = not self.prediction_mode
+        self.classifier.set_prediction_mode(self.prediction_mode)
+
     def _init_timeseries(self):
         """Initialize the timeseries plots for the EEG channels"""
         self.plots = list()
@@ -277,7 +283,6 @@ class Streamer:
             end_eeg = layouts[self.board_id]["eeg_end"]
             eeg = data[start_eeg:end_eeg]
             self.sample_counter += 1
-            # logging.info(f"Pulling sample {self.sample_counter}: {data.shape}")
 
             for count, channel in enumerate(self.eeg_channels):
                 ch_data = eeg[count]
@@ -318,7 +323,6 @@ class Streamer:
             self.app.processEvents()
             self.push_lsl_eeg_chunk(self.filtered_eeg, ts)
 
-
     def start_lsl_eeg_stream(self, stream_name='myeeg', type='EEG'):
         """
         Start an LSL stream for the EEG data
@@ -346,7 +350,7 @@ class Streamer:
         """
         try:
             info = pylsl.StreamInfo(name=stream_name, type=type, channel_count=1,
-                                    nominal_srate=self.sampling_rate, channel_format='float32',
+                                    nominal_srate=self.sampling_rate, channel_format='string',
                                     source_id=self.board.get_device_name(self.board_id))
             self.prediction_outlet = pylsl.StreamOutlet(info)
         except Exception as e:
@@ -402,8 +406,10 @@ class Streamer:
         Push a prediction to the LSL stream
         """
         try:
-            self.prediction_outlet.push_sample([prediction])
-            logging.info("Pushed prediction to LSL", prediction)
+            # Serialize the dictionary to a JSON string
+            prediction_json = json.dumps(prediction, default=convert_to_serializable)
+            self.prediction_outlet.push_sample([prediction_json])
+            logging.info(f"Pushed prediction to LSL: {prediction}")
         except Exception as e:
             logging.error(f"Error pushing prediction to LSL: {e}")
 
@@ -441,6 +447,12 @@ class Streamer:
         if timestamp == 0:
             timestamp = time.time()
         self.board.insert_marker(int(trigger))
+        if self.prediction_mode:
+            if int(trigger) == self.nclasses and not self.first_prediction: # half way trial
+                self.predict_class()
+            elif int(trigger) == self.nclasses and self.first_prediction:
+                logging.debug('Skipping first prediction')
+                self.first_prediction = False
 
     def init_classifier(self):
         """ Initialize the classifier """
@@ -455,6 +467,7 @@ class Streamer:
         end_training_time = time.time()
         training_length = end_training_time - self.start_training_time + 1
         training_interval = int(training_length * self.sampling_rate)
+        logging.info(f"Training duration: {training_length}")
         data = self.board.get_current_board_data(training_interval)
         self.classifier.train(data, oversample=self.over_sample)
 
@@ -469,7 +482,7 @@ class Streamer:
     def _predict_class(self, data):
         """Internal method to predict the class of the data."""
         try:
-            output = self.classifier.predict(data, proba=True)
+            output = self.classifier.predict(data, proba=True, group=True)
             self.push_lsl_prediction(output)
             logging.info(f"Predicted class: {output}")
         except Exception as e:
@@ -478,7 +491,7 @@ class Streamer:
     def predict_class(self):
         """Predict the class of the data."""
         try:
-            data = self.filtered_eeg
+            data = self.board.get_current_board_data(self.prediction_datapoints)
             self.executor.submit(self._predict_class, data)
         except Exception as e:
             logging.error(f"Error starting prediction task: {e}")
