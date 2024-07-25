@@ -284,33 +284,13 @@ class Streamer:
             if self.window_size == 0:
                 raise ValueError("Window size cannot be zero")
             data = self.board.get_current_board_data(num_samples=self.num_points)
+            self.filter_data_buffer(data)
             start_eeg = layouts[self.board_id]["eeg_start"]
             end_eeg = layouts[self.board_id]["eeg_end"]
             eeg = data[start_eeg:end_eeg]
             self.sample_counter += 1
-
             for count, channel in enumerate(self.eeg_channels):
                 ch_data = eeg[count]
-                # plot timeseries
-                DataFilter.detrend(ch_data, DetrendOperations.CONSTANT.value)
-                try:
-                    if self.bandpass_checkbox.isChecked():
-                        low = float(self.bandpass_box_low.text())
-                        high = float(self.bandpass_box_high.text())
-                        DataFilter.perform_bandpass(ch_data, self.sampling_rate, low, high, 4,
-                                                    FilterTypes.BUTTERWORTH_ZERO_PHASE, 0)
-                except ValueError:
-                    logging.error("Invalid frequency value")
-                try:
-                    if self.notch_checkbox.isChecked():
-                        freqs = self.notch_box.text().split(',')
-                        for freq in freqs:
-                            start_freq = float(freq) - 2.0
-                            end_freq = float(freq) + 2.0
-                            DataFilter.perform_bandstop(ch_data, self.sampling_rate, start_freq, end_freq, 4,
-                                                        FilterTypes.BUTTERWORTH_ZERO_PHASE, 0)
-                except ValueError:
-                    logging.error("Invalid frequency value")
                 if self.plot:
                     self.curves[count].setData(ch_data)
                     # Rescale the plot
@@ -482,7 +462,7 @@ class Streamer:
             timestamp = time.time()
         self.board.insert_marker(int(trigger))
         if self.prediction_mode:
-            if int(trigger) == self.nclasses and not self.first_prediction: # half way trial
+            if int(trigger) == self.nclasses and not self.first_prediction:  # half way trial
                 self.predict_class()
             elif int(trigger) == self.nclasses and self.first_prediction:
                 logging.debug('Skipping first prediction')
@@ -503,6 +483,7 @@ class Streamer:
         training_interval = int(training_length * self.sampling_rate)
         logging.info(f"Training duration: {training_length}")
         data = self.board.get_current_board_data(training_interval)
+        self.filter_data_buffer(data)
         self.classifier.train(data, oversample=self.over_sample)
 
     def start_prediction(self):
@@ -526,6 +507,7 @@ class Streamer:
         """Predict the class of the data."""
         try:
             data = self.board.get_current_board_data(self.prediction_datapoints)
+            self.filter_data_buffer(data)
             self.executor.submit(self._predict_class, data)
         except Exception as e:
             logging.error(f"Error starting prediction task: {e}")
@@ -561,6 +543,55 @@ class Streamer:
                 q_score = score
                 break
         return color, amplitude, q_score
+
+    def filter_data_buffer(self, data):
+        start_eeg = layouts[self.board_id]["eeg_start"]
+        end_eeg = layouts[self.board_id]["eeg_end"]
+        eeg = data[start_eeg:end_eeg]
+        for count, channel in enumerate(self.eeg_channels):
+            ch_data = eeg[count]
+            if self.bandpass_checkbox.isChecked():
+                start_freq = float(self.bandpass_box_low.text()) if self.bandpass_box_low.text() != '' else 0
+                stop_freq = float(self.bandpass_box_high.text()) if self.bandpass_box_high.text() != '' else 0
+                self.apply_bandpass_filter(ch_data, start_freq, stop_freq)
+            if self.notch_checkbox.isChecked():
+                freqs = np.array(self.notch_box.text().split(','))
+                self.apply_notch_filter(ch_data, freqs)
+
+    def apply_bandpass_filter(self, ch_data, start_freq, stop_freq, order=4, filter_type=FilterTypes.BUTTERWORTH_ZERO_PHASE,
+                              ripple=0):
+        DataFilter.detrend(ch_data, DetrendOperations.CONSTANT.value)
+        if start_freq >= stop_freq:
+            logging.error("Start frequency should be less than stop frequency")
+            return
+        if start_freq < 0 or stop_freq < 0:
+            logging.error("Frequency values should be positive")
+            return
+        if start_freq > self.sampling_rate / 2 or stop_freq > self.sampling_rate / 2:
+            logging.error("Frequency values should be less than half of the sampling rate in respect of Nyquist theorem")
+            return
+        try:
+            DataFilter.perform_bandpass(ch_data, self.sampling_rate, start_freq, stop_freq, order, filter_type, ripple)
+        except ValueError as e:
+            logging.error(f"Invalid frequency value {e}")
+
+    def apply_notch_filter(self, ch_data, freqs, bandwidth=2.0, order=4, filter_type=FilterTypes.BUTTERWORTH_ZERO_PHASE,
+                           ripple=0):
+        for freq in freqs:
+            if float(freq) < 0:
+                logging.error("Frequency values should be positive")
+                return
+            if float(freq) > self.sampling_rate / 2:
+                logging.error("Frequency values should be less than half of the sampling rate in respect of Nyquist theorem")
+                return
+        try:
+            for freq in freqs:
+                start_freq = float(freq) - bandwidth
+                end_freq = float(freq) + bandwidth
+                DataFilter.perform_bandstop(ch_data, self.sampling_rate, start_freq, end_freq, order,
+                                            filter_type, ripple)
+        except ValueError:
+            logging.error("Invalid frequency value")
 
     def toggle_stream(self):
         """ Start or stop the streaming of data"""
