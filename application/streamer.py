@@ -31,7 +31,6 @@ class Streamer:
 
     def __init__(self, board, params, plot=True, save_data=True, window_size=1, model='LDA'):
         time.sleep(window_size)  # Wait for the board to be ready
-
         self.is_streaming = True
         self.prediction_mode = False
         self.first_prediction = True
@@ -43,7 +42,7 @@ class Streamer:
         self.eeg_channels = BoardShim.get_eeg_channels(self.board_id)
         self.sampling_rate = BoardShim.get_sampling_rate(self.board_id)
         self.sample_counter = 0
-        self.color_thresholds = [(-150, -50, 'yellow'), (-50, 50, 'green'), (50, 150, 'yellow')]
+        self.quality_thresholds = [(-100, -50, 'yellow', 0.5), (-50, 50, 'green', 1.0), (50, 100, 'yellow', 0.5)]
         self.update_speed_ms = int(1000 / window_size)
         self.window_size = window_size
         self.plot = plot
@@ -99,8 +98,14 @@ class Streamer:
         self.timer.timeout.connect(self.update)
         self.timer.start(self.update_speed_ms)
 
+        # Initialize LSL streams
+        self.eeg_outlet = None
+        self.prediction_outlet = None
+        self.quality_outlet = None
         self.start_lsl_eeg_stream()
         self.start_lsl_prediction_stream()
+        self.start_lsl_quality_stream()
+
         self.app.exec_()
 
     def create_buttons(self):
@@ -323,7 +328,7 @@ class Streamer:
             self.app.processEvents()
             self.push_lsl_eeg_chunk(self.filtered_eeg, ts)
 
-    def start_lsl_eeg_stream(self, stream_name='myeeg', type='EEG'):
+    def start_lsl_eeg_stream(self, stream_name='Cortex EEG', type='EEG'):
         """
         Start an LSL stream for the EEG data
         :param stream_name: str, name of the LSL stream
@@ -339,10 +344,11 @@ class Streamer:
                 chs.append_child("channel").append_child_value("name", ch)
             chs.append_child("channel").append_child_value("name", "Trigger")
             self.eeg_outlet = pylsl.StreamOutlet(info)
+            logging.info(f"LSL EEG stream started {info.name()}")
         except Exception as e:
             logging.error(f"Error starting LSL stream: {e}")
 
-    def start_lsl_prediction_stream(self, stream_name='mypredictions', type='Markers'):
+    def start_lsl_prediction_stream(self, stream_name='Cortex Inference', type='Markers'):
         """
         Start an LSL stream for the prediction data
         :param stream_name: str, name of the LSL stream
@@ -353,6 +359,21 @@ class Streamer:
                                     nominal_srate=self.sampling_rate, channel_format='string',
                                     source_id=self.board.get_device_name(self.board_id))
             self.prediction_outlet = pylsl.StreamOutlet(info)
+            logging.info(f"LSL prediction stream started {info.name()}")
+        except Exception as e:
+            logging.error(f"Error starting LSL stream: {e}")
+
+    def start_lsl_quality_stream(self, stream_name='Cortex Qualities', type='Qualities'):
+        """ Start an LSL stream for the quality data
+        :param stream_name: str, name of the LSL stream
+        :param type: str, type of the LSL stream
+        """
+        try:
+            info = pylsl.StreamInfo(name=stream_name, type=type, channel_count=len(self.eeg_channels),
+                                    nominal_srate=self.sampling_rate, channel_format='float32',
+                                    source_id=self.board.get_device_name(self.board_id))
+            self.quality_outlet = pylsl.StreamOutlet(info)
+            logging.info(f"LSL quality stream started {info.name()}")
         except Exception as e:
             logging.error(f"Error starting LSL stream: {e}")
 
@@ -374,7 +395,7 @@ class Streamer:
             # Get only the seconds part of the timestamp
             ts = ts - ts_to_lsl_offset
             self.eeg_outlet.push_chunk(eeg.T.tolist(), ts)
-            logging.debug(f"Pushed sample {self.sample_counter} to LSL")
+            logging.debug(f"Pushed chunk {self.sample_counter} to LSL stream {self.eeg_outlet.get_info().name()}")
         except Exception as e:
             logging.error(f"Error pushing chunk to LSL: {e}")
 
@@ -398,20 +419,33 @@ class Streamer:
             for i in range(eeg.shape[1]):
                 sample = eeg[:, i]
                 self.eeg_outlet.push_sample(sample.tolist(), ts[i])
+                logging.debug(f"Pushed sample {self.sample_counter} to LSL stream {self.eeg_outlet.get_info().name()}")
         except Exception as e:
             logging.error(f"Error pushing sample to LSL: {e}")
 
     def push_lsl_prediction(self, prediction):
         """
         Push a prediction to the LSL stream
+        :param prediction: dict, prediction data
         """
         try:
             # Serialize the dictionary to a JSON string
             prediction_json = json.dumps(prediction, default=convert_to_serializable)
             self.prediction_outlet.push_sample([prediction_json])
-            logging.info(f"Pushed prediction to LSL: {prediction}")
+            logging.debug(f"Pushed prediction {prediction} to LSL stream {self.prediction_outlet.get_info().name()} ")
         except Exception as e:
             logging.error(f"Error pushing prediction to LSL: {e}")
+
+    def push_lsl_quality(self, quality):
+        """
+        Push a quality indicator to the LSL stream
+        :param quality: list of quality indicators
+        """
+        try:
+            self.quality_outlet.push_sample(quality)
+            logging.debug(f"Pushed quality {quality} to LSL stream {self.quality_outlet.get_info().name()}")
+        except Exception as e:
+            logging.error(f"Error pushing quality to LSL: {e}")
 
     def export_file(self, filename=None, folder='export', format='csv'):
         """
@@ -503,25 +537,30 @@ class Streamer:
         eeg = sample[eeg_start:eeg_end]
         amplitudes = []
         q_colors = []
+        q_scores = []
         for i in range(len(eeg)):
             amplitude_data = eeg[i]  # get the data for the i-th channel
-            color, amplitude = self.get_channel_quality(amplitude_data)
+            color, amplitude, q_score = self.get_channel_quality(amplitude_data)
             q_colors.append(color)
             amplitudes.append(np.round(amplitude, 2))
+            q_scores.append(q_score)
             # Update the scatter plot item with the new color
             self.quality_indicators[i].setBrush(mkBrush(color))
             self.quality_indicators[i].setData([-1], [0])  # Position the circle at (0, 0)
-        logging.debug(f"Qualities: {amplitudes} {q_colors}")
+        self.push_lsl_quality(q_scores)
+        logging.debug(f"Qualities: {q_scores} {q_colors}")
 
     def get_channel_quality(self, eeg, threshold=75):
         """ Get the quality of the EEG channel based on the amplitude"""
         amplitude = np.percentile(eeg, threshold)
+        q_score = 0
         color = 'red'
-        for low, high, color_name in self.color_thresholds:
+        for low, high, color_name, score in self.quality_thresholds:
             if low <= amplitude <= high:
                 color = color_name
+                q_score = score
                 break
-        return color, amplitude
+        return color, amplitude, q_score
 
     def toggle_stream(self):
         """ Start or stop the streaming of data"""
