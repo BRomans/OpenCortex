@@ -27,7 +27,7 @@ def simulate_lsl_client(start_cmd, end_cmd, nclasses=4, duration_s=30, interval_
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
-    outlet = pylsl.StreamOutlet(pylsl.StreamInfo('Markers', 'Markers', 1, 0, 'string', 'marker'))
+    outlet = pylsl.StreamOutlet(pylsl.StreamInfo('Cortex Markers', 'Markers', 1, 0, 'string', 'marker'))
 
     cmd = ""
     while cmd.lower() is not "q":

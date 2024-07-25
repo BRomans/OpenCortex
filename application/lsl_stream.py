@@ -24,7 +24,7 @@ class LSLStreamThread(QThread):
 
         # Create a new inlet to read from the stream, check until a stream is found
         while not streams:
-            streams = resolve_stream('type', 'Markers')
+            streams = resolve_stream('name', 'Cortex Markers')
             time.sleep(1)
         logging.info("LSL stream found: {}".format(streams[0].name()))
         inlet = StreamInlet(streams[0], processing_flags=pylsl.proc_clocksync | pylsl.proc_dejitter | pylsl.proc_threadsafe)
@@ -64,7 +64,7 @@ class LSLStreamThread(QThread):
                     self.new_sample.emit(marker[0], timestamp)
             except Exception as e:
                 logging.error(f"Error while reading LSL stream: {e}")
-                streams = resolve_stream('type', 'Markers')
+                streams = resolve_stream('name', 'Cortex Markers')
                 logging.info("LSL stream found: {}".format(streams[0].name()))
                 inlet = StreamInlet(streams[0],
                                     processing_flags=pylsl.proc_clocksync | pylsl.proc_dejitter | pylsl.proc_threadsafe)
