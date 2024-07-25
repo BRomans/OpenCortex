@@ -64,5 +64,8 @@ class LSLStreamThread(QThread):
                     self.new_sample.emit(marker[0], timestamp)
             except Exception as e:
                 logging.error(f"Error while reading LSL stream: {e}")
-                break
+                streams = resolve_stream('type', 'Markers')
+                logging.info("LSL stream found: {}".format(streams[0].name()))
+                inlet = StreamInlet(streams[0],
+                                    processing_flags=pylsl.proc_clocksync | pylsl.proc_dejitter | pylsl.proc_threadsafe)
 
