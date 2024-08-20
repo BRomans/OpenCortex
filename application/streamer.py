@@ -43,7 +43,7 @@ class Streamer:
         self.board_id = self.board.get_board_id()
         self.eeg_channels = BoardShim.get_eeg_channels(self.board_id)
         self.sampling_rate = BoardShim.get_sampling_rate(self.board_id)
-        self.sample_counter = 0
+        self.chunk_counter = 0
         self.quality_thresholds = [(-100, -50, 'yellow', 0.5), (-50, 50, 'green', 1.0), (50, 100, 'yellow', 0.5)]
         self.update_speed_ms = int(1000 / window_size)
         self.window_size = window_size
@@ -103,8 +103,10 @@ class Streamer:
         # Initialize LSL streams
         self.eeg_outlet = None
         self.prediction_outlet = None
+        self.band_powers_outlet = None
         self.quality_outlet = None
         self.start_lsl_eeg_stream()
+        self.start_lsl_power_bands_stream()
         self.start_lsl_prediction_stream()
         self.start_lsl_quality_stream()
 
@@ -306,13 +308,13 @@ class Streamer:
             self.filtered_eeg[-1] = trigger
             band_powers = extract_band_powers(data=self.filtered_eeg[0:len(self.eeg_channels)], fs=self.sampling_rate, bands=freq_bands,
                                               ch_names=self.eeg_channels)
-            logging.info(f"\n{band_powers}")
             if self.plot:
                 # plot trigger channel
                 self.curves[-1].setData(trigger.tolist())
                 self.update_quality_indicators(self.filtered_eeg)
             self.app.processEvents()
             self.push_lsl_raw_eeg(self.filtered_eeg, ts)
+            self.push_lsl_band_powers(band_powers, ts)
 
     def start_lsl_eeg_stream(self, stream_name='Cortex EEG', type='EEG'):
         """
@@ -331,6 +333,25 @@ class Streamer:
             chs.append_child("channel").append_child_value("name", "Trigger")
             self.eeg_outlet = pylsl.StreamOutlet(info)
             logging.info(f"LSL EEG stream started {info.name()}")
+        except Exception as e:
+            logging.error(f"Error starting LSL stream: {e}")
+
+    def start_lsl_power_bands_stream(self, stream_name='Cortex PSD', type='PSD'):
+        """
+        Start an LSL stream for the power bands data
+        :param stream_name: str, name of the LSL stream
+        :param type: str, type of the LSL stream
+        """
+        try:
+            info = pylsl.StreamInfo(name=stream_name, type=type, channel_count=len(self.eeg_channels),
+                                    nominal_srate=self.sampling_rate, channel_format='float32',
+                                    source_id=self.board.get_device_name(self.board_id))
+            # Add channel names
+            chs = info.desc().append_child("channels")
+            for ch in layouts[self.board_id]["channels"]:
+                chs.append_child("channel").append_child_value("name", ch)
+            self.band_powers_outlet = pylsl.StreamOutlet(info)
+            logging.info(f"LSL power bands stream started {info.name()}")
         except Exception as e:
             logging.error(f"Error starting LSL stream: {e}")
 
@@ -390,9 +411,22 @@ class Streamer:
                 for i in range(eeg.shape[1]):
                     sample = eeg[:, i]
                     self.eeg_outlet.push_sample(sample.tolist(), ts[i])
-                    logging.debug(f"Pushed sample {i}  of chunk {self.chunk_counter} to LSL")
+                logging.debug(f"Pushed {eeg.shape[1]} samples  of chunk {self.chunk_counter} to LSL")
         except Exception as e:
             logging.error(f"Error pushing chunk to LSL: {e}")
+
+    def push_lsl_band_powers(self, band_powers, timestamp):
+        """
+        Push the power bands to the LSL stream
+        :param band_powers: list of band power values
+        :param timestamp: float, timestamp value
+        """
+        try:
+            bp = band_powers.to_numpy()
+            self.band_powers_outlet.push_chunk(bp.tolist(), timestamp)
+            logging.debug(f"Pushed band powers {' '.join(list(freq_bands.keys()))} to LSL stream {self.band_powers_outlet.get_info().name()}")
+        except Exception as e:
+            logging.error(f"Error pushing band powers to LSL: {e}")
 
     def push_lsl_prediction(self, prediction):
         """
