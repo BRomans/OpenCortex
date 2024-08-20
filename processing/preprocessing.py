@@ -3,6 +3,7 @@ from mne import find_events, Epochs, create_info, EpochsArray
 from mne.io import RawArray
 from mne.time_frequency import psd_array_welch
 import numpy as np
+import pandas as pd
 
 
 def basic_preprocessing_pipeline(data: RawArray, lp_freq: float = 1, hp_freq: float = 30, notch_freqs: tuple = (50, 60),
@@ -95,7 +96,7 @@ def make_overlapping_epochs(data: RawArray, events, tmin: float = -0.1, tmax: fl
     return EpochsArray(data=epochs_data, info=info, events=events, tmin=tmin, baseline=baseline)
 
 
-def extract_band_powers(data, fs, bands):
+def extract_band_powers(data, fs, bands, ch_names):
     """
     psd = np.array([
         [0.1, 0.2, 0.3, 0.4, 0.5],  # Channel 1
@@ -107,6 +108,11 @@ def extract_band_powers(data, fs, bands):
     band_power = np.sum(psd, axis=-1)
     # output: [1.5, 2.0, 2.5, 3.0]
     """
-    psd, freqs = psd_array_welch(data=data, sfreq=fs, fmin=bands[0], fmax=bands[1], n_fft=fs * 2)
-    band_power = np.sum(psd, axis=-1)
-    return band_power
+    band_powers = {}
+    for band, (fmin, fmax) in bands.items():
+        if fmin >= fmax:
+            raise ValueError(f"Invalid band: {band}")
+        psd, freqs = psd_array_welch(x=data, sfreq=fs, fmin=fmin, fmax=fmax, n_fft=fs)
+        band_power = np.sum(psd, axis=-1)
+        band_powers[band] = band_power
+    return pd.DataFrame(band_powers, index=ch_names)
