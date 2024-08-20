@@ -12,8 +12,8 @@ from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
 from matplotlib import pyplot as plt
 from utils.layouts import layouts
 from utils.loader import convert_to_mne
-from utils.preprocessing import basic_preprocessing_pipeline, extract_epochs, make_overlapping_epochs
-from utils.validation import plot_cross_validated_roc_curve, plot_cross_validated_confusion_matrix, normalize
+from processing.preprocessing import basic_preprocessing_pipeline, extract_epochs, make_overlapping_epochs
+from validation.plotting import plot_cross_validated_roc_curve, plot_cross_validated_confusion_matrix, normalize
 
 # turn off MNE logging
 mne.utils.set_log_level('ERROR')

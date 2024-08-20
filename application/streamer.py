@@ -1,20 +1,21 @@
-import json
 import threading
 import time
 import numpy as np
 import logging
 import pyqtgraph as pg
 import os
-import pylsl
 from PyQt5 import QtWidgets, QtCore
 from application.classifier import Classifier
-from application.lsl_stream import LSLStreamThread
+from application.lsl.lsl_stream import LSLStreamThread, start_lsl_eeg_stream, start_lsl_power_bands_stream, \
+    start_lsl_prediction_stream, start_lsl_quality_stream, push_lsl_raw_eeg, push_lsl_band_powers, push_lsl_prediction, \
+    push_lsl_quality
 from utils.layouts import layouts
 from pyqtgraph import ScatterPlotItem, mkBrush
 from brainflow.board_shim import BoardShim
 from brainflow.data_filter import DataFilter, FilterTypes, DetrendOperations
 from concurrent.futures import ThreadPoolExecutor
-from utils.net_utils import convert_to_serializable
+from processing.preprocessing import extract_band_powers
+from processing.proc_helper import freq_bands
 
 # 16 Color ascii codes for the 16 EEG channels
 colors = ["blue", "green", "yellow", "purple", "orange", "pink", "brown", "gray",
@@ -31,7 +32,6 @@ class Streamer:
 
     def __init__(self, board, params, plot=True, save_data=True, window_size=1, model='LDA'):
         time.sleep(window_size)  # Wait for the board to be ready
-
         self.is_streaming = True
         self.prediction_mode = False
         self.first_prediction = True
@@ -42,8 +42,8 @@ class Streamer:
         self.board_id = self.board.get_board_id()
         self.eeg_channels = BoardShim.get_eeg_channels(self.board_id)
         self.sampling_rate = BoardShim.get_sampling_rate(self.board_id)
-        self.sample_counter = 0
-        self.color_thresholds = [(-150, -50, 'yellow'), (-50, 50, 'green'), (50, 150, 'yellow')]
+        self.chunk_counter = 0
+        self.quality_thresholds = [(-100, -50, 'yellow', 0.5), (-50, 50, 'green', 1.0), (50, 100, 'yellow', 0.5)]
         self.update_speed_ms = int(1000 / window_size)
         self.window_size = window_size
         self.plot = plot
@@ -77,7 +77,6 @@ class Streamer:
         logging.info("Looking for an LSL stream...")
         # Connect to the LSL stream threads
         self.prediction_timer = QtCore.QTimer()
-        #self.prediction_timer.timeout.connect(self.predict_class)
         self.lsl_thread = LSLStreamThread()
         self.lsl_thread.new_sample.connect(self.write_trigger)
         self.lsl_thread.set_train_start.connect(self.set_train_start)
@@ -99,8 +98,12 @@ class Streamer:
         self.timer.timeout.connect(self.update)
         self.timer.start(self.update_speed_ms)
 
-        self.start_lsl_eeg_stream()
-        self.start_lsl_prediction_stream()
+        # Initialize LSL streams
+        self.eeg_outlet = start_lsl_eeg_stream(channels=layouts[self.board_id]["channels"], fs=self.sampling_rate, source_id=self.board.get_device_name(self.board_id))
+        self.prediction_outlet = start_lsl_prediction_stream(fs=self.sampling_rate, source_id=self.board.get_device_name(self.board_id))
+        self.band_powers_outlet = start_lsl_power_bands_stream(channels=layouts[self.board_id]["channels"], fs=self.sampling_rate, source_id=self.board.get_device_name(self.board_id))
+        self.quality_outlet = start_lsl_quality_stream(channels=layouts[self.board_id]["channels"], fs=self.sampling_rate, source_id=self.board.get_device_name(self.board_id))
+
         self.app.exec_()
 
     def create_buttons(self):
@@ -279,33 +282,14 @@ class Streamer:
             if self.window_size == 0:
                 raise ValueError("Window size cannot be zero")
             data = self.board.get_current_board_data(num_samples=self.num_points)
+            self.filter_data_buffer(data)
             start_eeg = layouts[self.board_id]["eeg_start"]
             end_eeg = layouts[self.board_id]["eeg_end"]
             eeg = data[start_eeg:end_eeg]
-            self.sample_counter += 1
+            self.chunk_counter += 1
 
             for count, channel in enumerate(self.eeg_channels):
                 ch_data = eeg[count]
-                # plot timeseries
-                DataFilter.detrend(ch_data, DetrendOperations.CONSTANT.value)
-                try:
-                    if self.bandpass_checkbox.isChecked():
-                        low = float(self.bandpass_box_low.text())
-                        high = float(self.bandpass_box_high.text())
-                        DataFilter.perform_bandpass(ch_data, self.sampling_rate, low, high, 4,
-                                                    FilterTypes.BUTTERWORTH_ZERO_PHASE, 0)
-                except ValueError:
-                    logging.error("Invalid frequency value")
-                try:
-                    if self.notch_checkbox.isChecked():
-                        freqs = self.notch_box.text().split(',')
-                        for freq in freqs:
-                            start_freq = float(freq) - 2.0
-                            end_freq = float(freq) + 2.0
-                            DataFilter.perform_bandstop(ch_data, self.sampling_rate, start_freq, end_freq, 4,
-                                                        FilterTypes.BUTTERWORTH_ZERO_PHASE, 0)
-                except ValueError:
-                    logging.error("Invalid frequency value")
                 if self.plot:
                     self.curves[count].setData(ch_data)
                     # Rescale the plot
@@ -316,102 +300,15 @@ class Streamer:
             ts_channel = self.board.get_timestamp_channel(self.board_id)
             ts = data[ts_channel]
             self.filtered_eeg[-1] = trigger
+            band_powers = extract_band_powers(data=self.filtered_eeg[0:len(self.eeg_channels)], fs=self.sampling_rate,
+                                              bands=freq_bands, ch_names=self.eeg_channels)
             if self.plot:
                 # plot trigger channel
                 self.curves[-1].setData(trigger.tolist())
                 self.update_quality_indicators(self.filtered_eeg)
             self.app.processEvents()
-            self.push_lsl_eeg_chunk(self.filtered_eeg, ts)
-
-    def start_lsl_eeg_stream(self, stream_name='myeeg', type='EEG'):
-        """
-        Start an LSL stream for the EEG data
-        :param stream_name: str, name of the LSL stream
-        :param type: str, type of the LSL stream
-        """
-        try:
-            info = pylsl.StreamInfo(name=stream_name, type=type, channel_count=len(self.eeg_channels) + 1,
-                                    nominal_srate=self.sampling_rate, channel_format='float32',
-                                    source_id=self.board.get_device_name(self.board_id))
-            # Add channel names
-            chs = info.desc().append_child("channels")
-            for ch in layouts[self.board_id]["channels"]:
-                chs.append_child("channel").append_child_value("name", ch)
-            chs.append_child("channel").append_child_value("name", "Trigger")
-            self.eeg_outlet = pylsl.StreamOutlet(info)
-        except Exception as e:
-            logging.error(f"Error starting LSL stream: {e}")
-
-    def start_lsl_prediction_stream(self, stream_name='mypredictions', type='Markers'):
-        """
-        Start an LSL stream for the prediction data
-        :param stream_name: str, name of the LSL stream
-        :param type: str, type of the LSL stream
-        """
-        try:
-            info = pylsl.StreamInfo(name=stream_name, type=type, channel_count=1,
-                                    nominal_srate=self.sampling_rate, channel_format='string',
-                                    source_id=self.board.get_device_name(self.board_id))
-            self.prediction_outlet = pylsl.StreamOutlet(info)
-        except Exception as e:
-            logging.error(f"Error starting LSL stream: {e}")
-
-    def push_lsl_eeg_chunk(self, data, ts=0):
-        """
-        Push a chunk of data to the LSL stream
-        :param data: numpy array of shape (n_channels, n_samples)
-        :param ts: float, timestamp value
-        """
-        try:
-            # Get EEG and Trigger from data and push it to LSL
-            start_eeg = layouts[self.board_id]["eeg_start"]
-            end_eeg = layouts[self.board_id]["eeg_end"]
-            eeg = data[start_eeg:end_eeg]
-            trigger = data[-1]
-            # Horizontal stack EEG and Trigger
-            eeg = np.concatenate((eeg, trigger.reshape(1, len(trigger))), axis=0)
-            ts_to_lsl_offset = time.time() - pylsl.local_clock()
-            # Get only the seconds part of the timestamp
-            ts = ts - ts_to_lsl_offset
-            self.eeg_outlet.push_chunk(eeg.T.tolist(), ts)
-            logging.debug(f"Pushed sample {self.sample_counter} to LSL")
-        except Exception as e:
-            logging.error(f"Error pushing chunk to LSL: {e}")
-
-    def push_lsl_eeg_packet(self, data):
-        """
-        Push a packet of data to the LSL stream
-        :param data: numpy array of shape (n_channels, n_samples)
-        """
-        # Get EEG and Trigger from data and push it to LSL
-        try:
-            start_eeg = layouts[self.board_id]["eeg_start"]
-            end_eeg = layouts[self.board_id]["eeg_end"]
-            eeg = data[start_eeg:end_eeg]
-            trigger = data[-1]
-            # Horizontal stack EEG and Trigger
-            eeg = np.concatenate((eeg, trigger.reshape(1, len(trigger))), axis=0)
-            ts_channel = self.board.get_timestamp_channel(self.board_id)
-            ts = data[ts_channel]
-            ts_to_lsl_offset = time.time() - pylsl.local_clock()
-            ts = ts - ts_to_lsl_offset
-            for i in range(eeg.shape[1]):
-                sample = eeg[:, i]
-                self.eeg_outlet.push_sample(sample.tolist(), ts[i])
-        except Exception as e:
-            logging.error(f"Error pushing sample to LSL: {e}")
-
-    def push_lsl_prediction(self, prediction):
-        """
-        Push a prediction to the LSL stream
-        """
-        try:
-            # Serialize the dictionary to a JSON string
-            prediction_json = json.dumps(prediction, default=convert_to_serializable)
-            self.prediction_outlet.push_sample([prediction_json])
-            logging.info(f"Pushed prediction to LSL: {prediction}")
-        except Exception as e:
-            logging.error(f"Error pushing prediction to LSL: {e}")
+            push_lsl_raw_eeg(self.eeg_outlet, self.filtered_eeg, start_eeg, end_eeg, self.chunk_counter, ts, True)
+            push_lsl_band_powers(self.band_powers_outlet, band_powers.to_numpy(), ts)
 
     def export_file(self, filename=None, folder='export', format='csv'):
         """
@@ -448,7 +345,7 @@ class Streamer:
             timestamp = time.time()
         self.board.insert_marker(int(trigger))
         if self.prediction_mode:
-            if int(trigger) == self.nclasses and not self.first_prediction: # half way trial
+            if int(trigger) == self.nclasses and not self.first_prediction:  # half way trial
                 self.predict_class()
             elif int(trigger) == self.nclasses and self.first_prediction:
                 logging.debug('Skipping first prediction')
@@ -469,6 +366,7 @@ class Streamer:
         training_interval = int(training_length * self.sampling_rate)
         logging.info(f"Training duration: {training_length}")
         data = self.board.get_current_board_data(training_interval)
+        self.filter_data_buffer(data)
         self.classifier.train(data, oversample=self.over_sample)
 
     def start_prediction(self):
@@ -483,7 +381,7 @@ class Streamer:
         """Internal method to predict the class of the data."""
         try:
             output = self.classifier.predict(data, proba=True, group=True)
-            self.push_lsl_prediction(output)
+            push_lsl_prediction(self.prediction_outlet, output)
             logging.info(f"Predicted class: {output}")
         except Exception as e:
             logging.error(f"Error predicting class: {e}")
@@ -492,6 +390,7 @@ class Streamer:
         """Predict the class of the data."""
         try:
             data = self.board.get_current_board_data(self.prediction_datapoints)
+            self.filter_data_buffer(data)
             self.executor.submit(self._predict_class, data)
         except Exception as e:
             logging.error(f"Error starting prediction task: {e}")
@@ -503,25 +402,80 @@ class Streamer:
         eeg = sample[eeg_start:eeg_end]
         amplitudes = []
         q_colors = []
+        q_scores = []
         for i in range(len(eeg)):
             amplitude_data = eeg[i]  # get the data for the i-th channel
-            color, amplitude = self.get_channel_quality(amplitude_data)
+            color, amplitude, q_score = self.get_channel_quality(amplitude_data)
             q_colors.append(color)
             amplitudes.append(np.round(amplitude, 2))
+            q_scores.append(q_score)
             # Update the scatter plot item with the new color
             self.quality_indicators[i].setBrush(mkBrush(color))
             self.quality_indicators[i].setData([-1], [0])  # Position the circle at (0, 0)
-        logging.debug(f"Qualities: {amplitudes} {q_colors}")
+        push_lsl_quality(self.quality_outlet, q_scores)
+        logging.debug(f"Qualities: {q_scores} {q_colors}")
 
     def get_channel_quality(self, eeg, threshold=75):
         """ Get the quality of the EEG channel based on the amplitude"""
         amplitude = np.percentile(eeg, threshold)
+        q_score = 0
         color = 'red'
-        for low, high, color_name in self.color_thresholds:
+        for low, high, color_name, score in self.quality_thresholds:
             if low <= amplitude <= high:
                 color = color_name
+                q_score = score
                 break
-        return color, amplitude
+        return color, amplitude, q_score
+
+    def filter_data_buffer(self, data):
+        start_eeg = layouts[self.board_id]["eeg_start"]
+        end_eeg = layouts[self.board_id]["eeg_end"]
+        eeg = data[start_eeg:end_eeg]
+        for count, channel in enumerate(self.eeg_channels):
+            ch_data = eeg[count]
+            if self.bandpass_checkbox.isChecked():
+                start_freq = float(self.bandpass_box_low.text()) if self.bandpass_box_low.text() != '' else 0
+                stop_freq = float(self.bandpass_box_high.text()) if self.bandpass_box_high.text() != '' else 0
+                self.apply_bandpass_filter(ch_data, start_freq, stop_freq)
+            if self.notch_checkbox.isChecked():
+                freqs = np.array(self.notch_box.text().split(','))
+                self.apply_notch_filter(ch_data, freqs)
+
+    def apply_bandpass_filter(self, ch_data, start_freq, stop_freq, order=4,
+                              filter_type=FilterTypes.BUTTERWORTH_ZERO_PHASE, ripple=0):
+        DataFilter.detrend(ch_data, DetrendOperations.CONSTANT.value)
+        if start_freq >= stop_freq:
+            logging.error("Start frequency should be less than stop frequency")
+            return
+        if start_freq < 0 or stop_freq < 0:
+            logging.error("Frequency values should be positive")
+            return
+        if start_freq > self.sampling_rate / 2 or stop_freq > self.sampling_rate / 2:
+            logging.error("Frequency values should be less than half of the sampling rate in respect of Nyquist theorem")
+            return
+        try:
+            DataFilter.perform_bandpass(ch_data, self.sampling_rate, start_freq, stop_freq, order, filter_type, ripple)
+        except ValueError as e:
+            logging.error(f"Invalid frequency value {e}")
+
+    def apply_notch_filter(self, ch_data, freqs, bandwidth=2.0, order=4, filter_type=FilterTypes.BUTTERWORTH_ZERO_PHASE,
+                           ripple=0):
+        for freq in freqs:
+            if float(freq) < 0:
+                logging.error("Frequency values should be positive")
+                return
+            if float(freq) > self.sampling_rate / 2:
+                logging.error("Frequency values should be less than half of the sampling rate in respect of Nyquist "
+                              "theorem")
+                return
+        try:
+            for freq in freqs:
+                start_freq = float(freq) - bandwidth
+                end_freq = float(freq) + bandwidth
+                DataFilter.perform_bandstop(ch_data, self.sampling_rate, start_freq, end_freq, order,
+                                            filter_type, ripple)
+        except ValueError:
+            logging.error("Invalid frequency value")
 
     def toggle_stream(self):
         """ Start or stop the streaming of data"""

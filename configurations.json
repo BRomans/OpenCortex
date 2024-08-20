@@ -1,0 +1,20 @@
+{
+  "tERP": {
+    "classifier" : {
+      "model": "LDA",
+      "over_sample": false,
+      "epoch_start": -0.1,
+      "epoch_end": 0.5,
+      "seg_start": 50,
+      "seg_end": 150,
+      "scaler": "Standard"
+    },
+    "nClasses": 2,
+    "OnTimeMs": 250,
+    "PredictionIntervalCompute": "erp",
+    "PredictionIntervalScale": 2,
+    "outletEEG": "Cortex EEG",
+    "outletPrediction": "Cortex Inference",
+    "outletQuality": "Cortex Quality"
+  }
+}
