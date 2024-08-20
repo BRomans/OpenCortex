@@ -1,7 +1,7 @@
 import logging
-
 from mne import find_events, Epochs, create_info, EpochsArray
 from mne.io import RawArray
+from mne.time_frequency import psd_array_welch
 import numpy as np
 
 
@@ -75,7 +75,8 @@ def extract_epochs(data: RawArray, events, ev_ids=None, reject=None, tmin: float
         logging.error("All epochs were dropped. Please check the rejection parameters.")
 
 
-def make_overlapping_epochs(data: RawArray, events, tmin: float = -0.1, tmax: float = 0.5, baseline=None, fs: int = 250):
+def make_overlapping_epochs(data: RawArray, events, tmin: float = -0.1, tmax: float = 0.5, baseline=None,
+                            fs: int = 250):
     pre_event_samples = int(-tmin * fs)
     post_event_samples = int(tmax * fs)
     # Extract epochs manually
@@ -92,3 +93,20 @@ def make_overlapping_epochs(data: RawArray, events, tmin: float = -0.1, tmax: fl
     # Create an MNE EpochsArray
     info = create_info(ch_names=data.ch_names, sfreq=fs, ch_types='eeg')
     return EpochsArray(data=epochs_data, info=info, events=events, tmin=tmin, baseline=baseline)
+
+
+def extract_band_powers(data, fs, bands):
+    """
+    psd = np.array([
+        [0.1, 0.2, 0.3, 0.4, 0.5],  # Channel 1
+        [0.2, 0.3, 0.4, 0.5, 0.6],  # Channel 2
+        [0.3, 0.4, 0.5, 0.6, 0.7],  # Channel 3
+        [0.4, 0.5, 0.6, 0.7, 0.8]   # Channel 4
+    ])
+
+    band_power = np.sum(psd, axis=-1)
+    # output: [1.5, 2.0, 2.5, 3.0]
+    """
+    psd, freqs = psd_array_welch(data=data, sfreq=fs, fmin=bands[0], fmax=bands[1], n_fft=fs * 2)
+    band_power = np.sum(psd, axis=-1)
+    return band_power
