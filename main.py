@@ -5,6 +5,9 @@ from brainflow.board_shim import BoardShim, BrainFlowInputParams, BoardIds
 from application.setup_dialog import SetupDialog, retrieve_board_id, retrieve_eeg_devices
 from application.streamer import Streamer
 
+logging_levels = {0: logging.NOTSET, 1: logging.DEBUG, 2: logging.INFO, 3: logging.WARNING, 4: logging.ERROR,
+                  5: logging.CRITICAL}
+
 
 def main():
     BoardShim.enable_dev_board_logger()
@@ -49,9 +52,11 @@ def main():
         dialog = SetupDialog(devices)
         window_size = 0
         if dialog.exec_() == QtWidgets.QDialog.Accepted:
-            selected_device, window_size = dialog.get_data()
+            selected_device, window_size, log_level = dialog.get_data()
             logging.info(f"Selected Device: {selected_device}")
             logging.info(f"Window Size: {window_size} seconds")
+            logging.info(f"Logging set to level: {log_level}")
+            logging.getLogger().setLevel(logging_levels[log_level])
             args.serial_number = selected_device
             args.board_id = retrieve_board_id(args.serial_number)
     except BaseException as e:

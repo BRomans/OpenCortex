@@ -4,6 +4,8 @@ import bluetooth
 import logging
 from brainflow import BoardIds
 
+log_labels = {0: 'NOTSET', 1: 'DEBUG', 2: 'INFO', 3: 'WARNING', 4: 'ERROR', 5: 'CRITICAL'}
+
 
 def retrieve_eeg_devices():
     saved_devices = bluetooth.discover_devices(duration=1, lookup_names=True, lookup_class=True)
@@ -53,9 +55,20 @@ class SetupDialog(QtWidgets.QDialog):
         self.window_size_slider.valueChanged.connect(self.update_window_size_label)
         self.window_size_label = QtWidgets.QLabel(f'Window size: {self.window_size_slider.value()} seconds', self)
 
-        layout.addWidget(QtWidgets.QLabel('Window size (seconds)'))
-        layout.addWidget(self.window_size_slider)
         layout.addWidget(self.window_size_label)
+        layout.addWidget(self.window_size_slider)
+
+        # Create slider for logging level
+        self.logging_level_slider = QtWidgets.QSlider(QtCore.Qt.Horizontal, self)
+        self.logging_level_slider.setMinimum(0)
+        self.logging_level_slider.setMaximum(5)
+        self.logging_level_slider.setValue(2)
+        self.logging_level_slider.valueChanged.connect(self.update_logging_level_label)
+        self.logging_level_label = QtWidgets.QLabel(f'Logging level: {log_labels[self.logging_level_slider.value()]} ',
+                                                    self)
+
+        layout.addWidget(self.logging_level_label)
+        layout.addWidget(self.logging_level_slider)
 
         # Add OK and Cancel buttons
         self.button_box = QtWidgets.QDialogButtonBox(QtWidgets.QDialogButtonBox.Ok | QtWidgets.QDialogButtonBox.Cancel,
@@ -67,8 +80,12 @@ class SetupDialog(QtWidgets.QDialog):
     def update_window_size_label(self, value):
         self.window_size_label.setText(f'Window size: {value} seconds')
 
+    def update_logging_level_label(self, value):
+        self.logging_level_label.setText(f'Logging level: {log_labels[value]} ')
+
     def get_data(self):
         return (
             self.device_combo.currentText(),
-            self.window_size_slider.value()
+            self.window_size_slider.value(),
+            self.logging_level_slider.value(),
         )
