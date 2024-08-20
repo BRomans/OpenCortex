@@ -15,7 +15,8 @@ from brainflow.board_shim import BoardShim
 from brainflow.data_filter import DataFilter, FilterTypes, DetrendOperations
 from concurrent.futures import ThreadPoolExecutor
 from utils.net_utils import convert_to_serializable
-from utils.preprocessing import extract_band_powers
+from processing.preprocessing import extract_band_powers
+from processing.proc_helper import freq_bands
 
 # 16 Color ascii codes for the 16 EEG channels
 colors = ["blue", "green", "yellow", "purple", "orange", "pink", "brown", "gray",
@@ -318,6 +319,9 @@ class Streamer:
             ts_channel = self.board.get_timestamp_channel(self.board_id)
             ts = data[ts_channel]
             self.filtered_eeg[-1] = trigger
+            band_powers = extract_band_powers(data=self.filtered_eeg[0:len(self.eeg_channels)], fs=self.sampling_rate, bands=freq_bands,
+                                              ch_names=self.eeg_channels)
+            logging.info(f"\n{band_powers}")
             if self.plot:
                 # plot trigger channel
                 self.curves[-1].setData(trigger.tolist())
@@ -358,7 +362,7 @@ class Streamer:
         except Exception as e:
             logging.error(f"Error starting LSL stream: {e}")
 
-    def push_lsl_raw_eeg(self, data, ts=0, chunk=True):
+    def push_lsl_raw_eeg(self, data, ts=0, chunk=False):
         """
         Push a chunk of data to the LSL stream
         :param data: numpy array of shape (n_channels, n_samples)
@@ -371,8 +375,10 @@ class Streamer:
             end_eeg = layouts[self.board_id]["eeg_end"]
             eeg = data[start_eeg:end_eeg]
             trigger = data[-1]
+
             # Horizontal stack EEG and Trigger
             eeg = np.concatenate((eeg, trigger.reshape(1, len(trigger))), axis=0)
+
             ts_to_lsl_offset = time.time() - pylsl.local_clock()
             # Get only the seconds part of the timestamp
             ts = ts - ts_to_lsl_offset
