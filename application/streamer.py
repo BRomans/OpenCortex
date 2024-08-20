@@ -15,6 +15,7 @@ from brainflow.board_shim import BoardShim
 from brainflow.data_filter import DataFilter, FilterTypes, DetrendOperations
 from concurrent.futures import ThreadPoolExecutor
 from utils.net_utils import convert_to_serializable
+from utils.preprocessing import extract_band_powers
 
 # 16 Color ascii codes for the 16 EEG channels
 colors = ["blue", "green", "yellow", "purple", "orange", "pink", "brown", "gray",
@@ -42,7 +43,7 @@ class Streamer:
         self.board_id = self.board.get_board_id()
         self.eeg_channels = BoardShim.get_eeg_channels(self.board_id)
         self.sampling_rate = BoardShim.get_sampling_rate(self.board_id)
-        self.sample_counter = 0
+        self.chunk_counter = 0
         self.color_thresholds = [(-150, -50, 'yellow'), (-50, 50, 'green'), (50, 150, 'yellow')]
         self.update_speed_ms = int(1000 / window_size)
         self.window_size = window_size
@@ -68,7 +69,8 @@ class Streamer:
         self.on_time = 250  # ms
         self.off_time = (self.on_time * (self.nclasses - 1))
         logging.debug(f"Off time: {self.off_time} ms")
-        self.prediction_interval = int(self.on_time + self.off_time) * 2 # we take double the time, so we can loop on it
+        self.prediction_interval = int(
+            self.on_time + self.off_time) * 2  # we take double the time, so we can loop on it
         logging.debug(f"Prediction interval: {self.prediction_interval} ms")
         # calculate how many datapoints based on the sampling rate
         self.prediction_datapoints = int(self.prediction_interval * self.sampling_rate / 1000)
@@ -282,7 +284,7 @@ class Streamer:
             start_eeg = layouts[self.board_id]["eeg_start"]
             end_eeg = layouts[self.board_id]["eeg_end"]
             eeg = data[start_eeg:end_eeg]
-            self.sample_counter += 1
+            self.chunk_counter += 1
 
             for count, channel in enumerate(self.eeg_channels):
                 ch_data = eeg[count]
@@ -321,7 +323,7 @@ class Streamer:
                 self.curves[-1].setData(trigger.tolist())
                 self.update_quality_indicators(self.filtered_eeg)
             self.app.processEvents()
-            self.push_lsl_eeg_chunk(self.filtered_eeg, ts)
+            self.push_lsl_raw_eeg(self.filtered_eeg, ts)
 
     def start_lsl_eeg_stream(self, stream_name='myeeg', type='EEG'):
         """
@@ -356,11 +358,12 @@ class Streamer:
         except Exception as e:
             logging.error(f"Error starting LSL stream: {e}")
 
-    def push_lsl_eeg_chunk(self, data, ts=0):
+    def push_lsl_raw_eeg(self, data, ts=0, chunk=True):
         """
         Push a chunk of data to the LSL stream
         :param data: numpy array of shape (n_channels, n_samples)
         :param ts: float, timestamp value
+        :param chunk: bool, whether to push a chunk of data or a single sample
         """
         try:
             # Get EEG and Trigger from data and push it to LSL
@@ -373,33 +376,16 @@ class Streamer:
             ts_to_lsl_offset = time.time() - pylsl.local_clock()
             # Get only the seconds part of the timestamp
             ts = ts - ts_to_lsl_offset
-            self.eeg_outlet.push_chunk(eeg.T.tolist(), ts)
-            logging.debug(f"Pushed sample {self.sample_counter} to LSL")
+            if chunk:
+                self.eeg_outlet.push_chunk(eeg.T.tolist(), ts)
+                logging.debug(f"Pushed chunk {self.chunk_counter} to LSL")
+            else:
+                for i in range(eeg.shape[1]):
+                    sample = eeg[:, i]
+                    self.eeg_outlet.push_sample(sample.tolist(), ts[i])
+                    logging.debug(f"Pushed sample {i}  of chunk {self.chunk_counter} to LSL")
         except Exception as e:
             logging.error(f"Error pushing chunk to LSL: {e}")
-
-    def push_lsl_eeg_packet(self, data):
-        """
-        Push a packet of data to the LSL stream
-        :param data: numpy array of shape (n_channels, n_samples)
-        """
-        # Get EEG and Trigger from data and push it to LSL
-        try:
-            start_eeg = layouts[self.board_id]["eeg_start"]
-            end_eeg = layouts[self.board_id]["eeg_end"]
-            eeg = data[start_eeg:end_eeg]
-            trigger = data[-1]
-            # Horizontal stack EEG and Trigger
-            eeg = np.concatenate((eeg, trigger.reshape(1, len(trigger))), axis=0)
-            ts_channel = self.board.get_timestamp_channel(self.board_id)
-            ts = data[ts_channel]
-            ts_to_lsl_offset = time.time() - pylsl.local_clock()
-            ts = ts - ts_to_lsl_offset
-            for i in range(eeg.shape[1]):
-                sample = eeg[:, i]
-                self.eeg_outlet.push_sample(sample.tolist(), ts[i])
-        except Exception as e:
-            logging.error(f"Error pushing sample to LSL: {e}")
 
     def push_lsl_prediction(self, prediction):
         """
@@ -448,7 +434,7 @@ class Streamer:
             timestamp = time.time()
         self.board.insert_marker(int(trigger))
         if self.prediction_mode:
-            if int(trigger) == self.nclasses and not self.first_prediction: # half way trial
+            if int(trigger) == self.nclasses and not self.first_prediction:  # half way trial
                 self.predict_class()
             elif int(trigger) == self.nclasses and self.first_prediction:
                 logging.debug('Skipping first prediction')
