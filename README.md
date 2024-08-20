@@ -1,8 +1,7 @@
-# Cortex Streamer
+# Cortex BCI Streamer
 CortexStreamer is a fully-featured EEG streaming app to stream EEG data and markers.
 
-It includes:
-- a GUI to plot EEG in real-time
+- GUI to plot EEG in real-time
 - signal filters (visualization only)
 - signal quality estimators
 - a button to save custom markers on the data
