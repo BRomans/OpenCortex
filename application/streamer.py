@@ -44,7 +44,8 @@ class Streamer:
         self.sampling_rate = BoardShim.get_sampling_rate(self.board_id)
         self.chunk_counter = 0
         self.quality_thresholds = [(-100, -50, 'yellow', 0.5), (-50, 50, 'green', 1.0), (50, 100, 'yellow', 0.5)]
-        self.update_speed_ms = int(1000 / window_size)
+        self.update_speed_ms = int(1000 * window_size)
+        self.update_plot_speed_ms = int(1000 / window_size)
         self.window_size = window_size
         self.plot = plot
         self.save_data = save_data
@@ -68,7 +69,8 @@ class Streamer:
         self.on_time = 250  # ms
         self.off_time = (self.on_time * (self.nclasses - 1))
         logging.debug(f"Off time: {self.off_time} ms")
-        self.prediction_interval = int(self.on_time + self.off_time) * 2 # we take double the time, so we can loop on it
+        self.prediction_interval = int(
+            self.on_time + self.off_time) * 2  # we take double the time, so we can loop on it
         logging.debug(f"Prediction interval: {self.prediction_interval} ms")
         # calculate how many datapoints based on the sampling rate
         self.prediction_datapoints = int(self.prediction_interval * self.sampling_rate / 1000)
@@ -95,14 +97,24 @@ class Streamer:
 
         # Start the PyQt event loop to fetch the raw data
         self.timer = QtCore.QTimer()
-        self.timer.timeout.connect(self.update)
+        self.timer.timeout.connect(self.update_data_buffer)
         self.timer.start(self.update_speed_ms)
 
+        self.plot_timer = QtCore.QTimer()
+        self.plot_timer.timeout.connect(self.update_plot)
+        self.plot_timer.start(self.update_plot_speed_ms)
+
         # Initialize LSL streams
-        self.eeg_outlet = start_lsl_eeg_stream(channels=layouts[self.board_id]["channels"], fs=self.sampling_rate, source_id=self.board.get_device_name(self.board_id))
-        self.prediction_outlet = start_lsl_prediction_stream(fs=self.sampling_rate, source_id=self.board.get_device_name(self.board_id))
-        self.band_powers_outlet = start_lsl_power_bands_stream(channels=layouts[self.board_id]["channels"], fs=self.sampling_rate, source_id=self.board.get_device_name(self.board_id))
-        self.quality_outlet = start_lsl_quality_stream(channels=layouts[self.board_id]["channels"], fs=self.sampling_rate, source_id=self.board.get_device_name(self.board_id))
+        self.eeg_outlet = start_lsl_eeg_stream(channels=layouts[self.board_id]["channels"], fs=self.sampling_rate,
+                                               source_id=self.board.get_device_name(self.board_id))
+        self.prediction_outlet = start_lsl_prediction_stream(fs=self.sampling_rate,
+                                                             source_id=self.board.get_device_name(self.board_id))
+        self.band_powers_outlet = start_lsl_power_bands_stream(channels=layouts[self.board_id]["channels"],
+                                                               fs=self.sampling_rate,
+                                                               source_id=self.board.get_device_name(self.board_id))
+        self.quality_outlet = start_lsl_quality_stream(channels=layouts[self.board_id]["channels"],
+                                                       fs=self.sampling_rate,
+                                                       source_id=self.board.get_device_name(self.board_id))
 
         self.app.exec_()
 
@@ -158,6 +170,10 @@ class Streamer:
         self.notch_box.setPlaceholderText('0, 0')
         self.notch_box.setText('50, 60')
 
+        self.lsl_chunk_checkbox = QtWidgets.QCheckBox('Chunk data')
+        self.lsl_chunk_checkbox.setStyleSheet('color: white')
+        self.lsl_chunk_checkbox.setChecked(True)
+
         # Create a layout for buttons
         start_save_layout = QtWidgets.QHBoxLayout()
         start_save_layout.addWidget(self.save_data_checkbox)
@@ -176,6 +192,13 @@ class Streamer:
         notch_layout.addWidget(self.notch_checkbox)
         notch_layout.addSpacing(10)  # Add spacing between widgets
         notch_layout.addWidget(self.notch_box)
+
+        # Create a layout for LSL options
+        lsl_layout_label = QtWidgets.QLabel("LSL Options")
+        lsl_layout_label.setStyleSheet("color: white; font-size: 20px;")
+        lsl_layout = QtWidgets.QVBoxLayout()
+        lsl_layout.addWidget(lsl_layout_label)
+        lsl_layout.addWidget(self.lsl_chunk_checkbox)
 
         # Create a vertical layout to contain the notch filter and the button layout
         left_side_label = QtWidgets.QLabel("Filters")
@@ -204,6 +227,7 @@ class Streamer:
 
         # Horizontal layout to contain the classifier buttons
         horizontal_container = QtWidgets.QHBoxLayout()
+        horizontal_container.addLayout(lsl_layout)
         horizontal_container.addSpacing(20)
         horizontal_container.addLayout(left_side_layout)
         horizontal_container.addSpacing(20)
@@ -227,6 +251,33 @@ class Streamer:
         """Set the BCI running status"""
         self.prediction_mode = not self.prediction_mode
         self.classifier.set_prediction_mode(self.prediction_mode)
+
+    def update_data_buffer(self):
+        """ Update the plot with new data"""
+        if self.is_streaming:
+            if self.window_size == 0:
+                raise ValueError("Window size cannot be zero")
+            data = self.board.get_current_board_data(num_samples=self.num_points)
+            self.filter_data_buffer(data)
+            start_eeg = layouts[self.board_id]["eeg_start"]
+            end_eeg = layouts[self.board_id]["eeg_end"]
+            eeg = data[start_eeg:end_eeg]
+            self.chunk_counter += 1
+
+            for count, channel in enumerate(self.eeg_channels):
+                ch_data = eeg[count]
+                self.filtered_eeg[count] = ch_data
+
+            trigger = data[-1]
+            ts_channel = self.board.get_timestamp_channel(self.board_id)
+            ts = data[ts_channel]
+            self.filtered_eeg[-1] = trigger
+            band_powers = extract_band_powers(data=self.filtered_eeg[0:len(self.eeg_channels)], fs=self.sampling_rate,
+                                              bands=freq_bands, ch_names=self.eeg_channels)
+            self.app.processEvents()
+            push_lsl_raw_eeg(self.eeg_outlet, self.filtered_eeg, start_eeg, end_eeg, self.chunk_counter, ts,
+                             self.lsl_chunk_checkbox.isChecked())
+            push_lsl_band_powers(self.band_powers_outlet, band_powers.to_numpy(), ts)
 
     def _init_timeseries(self):
         """Initialize the timeseries plots for the EEG channels"""
@@ -270,14 +321,15 @@ class Streamer:
         p.setLabel('left', text='Marker')
         p.setLabel('bottom', text='Time (s)')
         # set maximum width to half of the window
-        p.setMinimumWidth(self.win.width() / 2)
+        p.setMinimumWidth(self.win.width() / 3)
 
         self.plots.append(p)
         curve = p.plot(pen='red')
         self.curves.append(curve)
 
-    def update(self):
+    def update_plot(self):
         """ Update the plot with new data"""
+        filtered_eeg = np.zeros((len(self.eeg_channels) + 1, self.num_points))
         if self.is_streaming:
             if self.window_size == 0:
                 raise ValueError("Window size cannot be zero")
@@ -286,7 +338,6 @@ class Streamer:
             start_eeg = layouts[self.board_id]["eeg_start"]
             end_eeg = layouts[self.board_id]["eeg_end"]
             eeg = data[start_eeg:end_eeg]
-            self.chunk_counter += 1
 
             for count, channel in enumerate(self.eeg_channels):
                 ch_data = eeg[count]
@@ -294,21 +345,16 @@ class Streamer:
                     self.curves[count].setData(ch_data)
                     # Rescale the plot
                     self.plots[count].setYRange(np.min(ch_data), np.max(ch_data))
-                self.filtered_eeg[count] = ch_data
+                filtered_eeg[count] = ch_data
 
             trigger = data[-1]
             ts_channel = self.board.get_timestamp_channel(self.board_id)
-            ts = data[ts_channel]
-            self.filtered_eeg[-1] = trigger
-            band_powers = extract_band_powers(data=self.filtered_eeg[0:len(self.eeg_channels)], fs=self.sampling_rate,
-                                              bands=freq_bands, ch_names=self.eeg_channels)
+            filtered_eeg[-1] = trigger
             if self.plot:
                 # plot trigger channel
                 self.curves[-1].setData(trigger.tolist())
-                self.update_quality_indicators(self.filtered_eeg)
+                self.update_quality_indicators(filtered_eeg, push=True)
             self.app.processEvents()
-            push_lsl_raw_eeg(self.eeg_outlet, self.filtered_eeg, start_eeg, end_eeg, self.chunk_counter, ts, True)
-            push_lsl_band_powers(self.band_powers_outlet, band_powers.to_numpy(), ts)
 
     def export_file(self, filename=None, folder='export', format='csv'):
         """
@@ -395,7 +441,7 @@ class Streamer:
         except Exception as e:
             logging.error(f"Error starting prediction task: {e}")
 
-    def update_quality_indicators(self, sample):
+    def update_quality_indicators(self, sample, push=False):
         """ Update the quality indicators for each channel"""
         eeg_start = layouts[self.board_id]["eeg_start"]
         eeg_end = layouts[self.board_id]["eeg_end"]
@@ -412,7 +458,8 @@ class Streamer:
             # Update the scatter plot item with the new color
             self.quality_indicators[i].setBrush(mkBrush(color))
             self.quality_indicators[i].setData([-1], [0])  # Position the circle at (0, 0)
-        push_lsl_quality(self.quality_outlet, q_scores)
+        if push:
+            push_lsl_quality(self.quality_outlet, q_scores)
         logging.debug(f"Qualities: {q_scores} {q_colors}")
 
     def get_channel_quality(self, eeg, threshold=75):
@@ -451,7 +498,8 @@ class Streamer:
             logging.error("Frequency values should be positive")
             return
         if start_freq > self.sampling_rate / 2 or stop_freq > self.sampling_rate / 2:
-            logging.error("Frequency values should be less than half of the sampling rate in respect of Nyquist theorem")
+            logging.error(
+                "Frequency values should be less than half of the sampling rate in respect of Nyquist theorem")
             return
         try:
             DataFilter.perform_bandpass(ch_data, self.sampling_rate, start_freq, stop_freq, order, filter_type, ripple)
