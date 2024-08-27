@@ -192,12 +192,12 @@ def push_lsl_raw_eeg(outlet: StreamOutlet, data, start_eeg, end_eeg, counter, ts
         ts = ts - ts_to_lsl_offset
         if chunk:
             outlet.push_chunk(eeg.T.tolist(), ts)
-            logging.debug(f"Pushed chunk {counter} to LSL stream {outlet.get_info().name()}")
+            logging.info(f"Pushed chunk {counter} to LSL stream {outlet.get_info().name()}")
         else:
             for i in range(eeg.shape[1]):
                 sample = eeg[:, i]
                 outlet.push_sample(sample.tolist(), ts[i])
-            logging.debug(f"Pushed {eeg.shape[1]} samples  of chunk {counter} to LSL stream {outlet.get_info().name()}")
+            logging.info(f"Pushed {eeg.shape[1]} samples  of chunk {counter} to LSL stream {outlet.get_info().name()}")
     except Exception as e:
         logging.error(f"Error pushing chunk to LSL: {e}")
 
@@ -211,7 +211,7 @@ def push_lsl_band_powers(outlet: StreamOutlet, band_powers, timestamp):
     """
     try:
         outlet.push_chunk(band_powers.tolist(), timestamp)
-        logging.debug(
+        logging.info(
             f"Pushed band powers {' '.join(list(freq_bands.keys()))} to LSL stream {outlet.get_info().name()}")
     except Exception as e:
         logging.error(f"Error pushing band powers to LSL: {e}")
@@ -227,7 +227,7 @@ def push_lsl_prediction(outlet: StreamOutlet, prediction):
         # Serialize the dictionary to a JSON string
         prediction_json = json.dumps(prediction, default=convert_to_serializable)
         outlet.push_sample([prediction_json])
-        logging.debug(f"Pushed prediction {prediction} to LSL stream {outlet.get_info().name()} ")
+        logging.info(f"Pushed prediction {prediction} to LSL stream {outlet.get_info().name()} ")
     except Exception as e:
         logging.error(f"Error pushing prediction to LSL: {e}")
 
@@ -240,6 +240,6 @@ def push_lsl_quality(outlet: StreamOutlet, quality):
     """
     try:
         outlet.push_sample(quality)
-        logging.debug(f"Pushed quality {quality} to LSL stream {outlet.get_info().name()}")
+        logging.info(f"Pushed quality {quality} to LSL stream {outlet.get_info().name()}")
     except Exception as e:
         logging.error(f"Error pushing quality to LSL: {e}")
