@@ -4,6 +4,7 @@ import numpy as np
 import logging
 import pyqtgraph as pg
 import os
+import yaml
 from PyQt5 import QtWidgets, QtCore
 from application.classifier import Classifier
 from application.lsl.lsl_stream import LSLStreamThread, start_lsl_eeg_stream, start_lsl_power_bands_stream, \
@@ -30,8 +31,24 @@ def write_header(file, board_id):
 
 class Streamer:
 
-    def __init__(self, board, params, plot=True, save_data=True, window_size=1, model='LDA'):
-        time.sleep(window_size)  # Wait for the board to be ready
+    def __init__(self, board, params, window_size=1, config_file='config.yaml'):
+        # Load configuration from file
+        with open(config_file, 'r') as file:
+            config = yaml.safe_load(file)
+
+        self.window_size = window_size
+        # Apply configuration
+        self.plot = config.get('plot', True)
+        self.save_data = config.get('save_data', True)
+        self.model = config.get('model', 'LDA')
+        self.nclasses = config.get('nclasses', 4)
+        self.on_time = config.get('on_time', 250)
+        self.quality_thresholds = config.get('quality_thresholds', [(-100, -50, 'yellow', 0.5), (-50, 50, 'green', 1.0),
+                                                                    (50, 100, 'yellow', 0.5)])
+        self.update_speed_ms = config.get('update_speed_ms', 1000 * self.window_size)
+        self.update_plot_speed_ms = config.get('update_plot_speed_ms', 1000 / self.window_size)
+
+        time.sleep(self.window_size)  # Wait for the board to be ready
         self.is_streaming = True
         self.prediction_mode = False
         self.first_prediction = True
@@ -43,12 +60,6 @@ class Streamer:
         self.eeg_channels = BoardShim.get_eeg_channels(self.board_id)
         self.sampling_rate = BoardShim.get_sampling_rate(self.board_id)
         self.chunk_counter = 0
-        self.quality_thresholds = [(-100, -50, 'yellow', 0.5), (-50, 50, 'green', 1.0), (50, 100, 'yellow', 0.5)]
-        self.update_speed_ms = int(1000 * window_size)
-        self.update_plot_speed_ms = int(1000 / window_size)
-        self.window_size = window_size
-        self.plot = plot
-        self.save_data = save_data
         self.num_points = self.window_size * self.sampling_rate
         self.filtered_eeg = np.zeros((len(self.eeg_channels) + 1, self.num_points))
         logging.info(f"Connected to {self.board.get_device_name(self.board.get_board_id())}")
@@ -56,8 +67,7 @@ class Streamer:
         # Initialize the classifier in a new thread
         self.classifier = None
         self.executor = ThreadPoolExecutor(max_workers=5)
-        if model is not None:
-            self.model = model
+        if self.model is not None:
             self.over_sample = False
             self.classifier_thread = threading.Thread(target=self.init_classifier)
             self.classifier_thread.start()
@@ -65,8 +75,6 @@ class Streamer:
         self.app = QtWidgets.QApplication([])
 
         # Calculate time interval for prediction
-        self.nclasses = 4
-        self.on_time = 250  # ms
         self.off_time = (self.on_time * (self.nclasses - 1))
         logging.debug(f"Off time: {self.off_time} ms")
         self.prediction_interval = int(
@@ -90,10 +98,16 @@ class Streamer:
         self.win = pg.GraphicsLayoutWidget(title='Cortex Streamer', size=(1200, 800))
         self.win.setWindowTitle('Cortex Streamer')
         self.win.show()
-        self.create_buttons()
-        if self.plot:
-            # Create a window
-            self._init_timeseries()
+        panel = self.create_buttons()
+        plot = self.init_plot()
+
+        # Create a layout for the main window
+        self.main_layout = QtWidgets.QGridLayout()
+        self.main_layout.addWidget(plot, 0, 0)
+        self.main_layout.addWidget(panel, 1, 0)
+
+        # Set the main layout for the window
+        self.win.setLayout(self.main_layout)
 
         # Start the PyQt event loop to fetch the raw data
         self.timer = QtCore.QTimer()
@@ -182,15 +196,11 @@ class Streamer:
         # Create a layout for the bandpass filter
         bandpass_layout = QtWidgets.QHBoxLayout()
         bandpass_layout.addWidget(self.bandpass_checkbox)
-        bandpass_layout.addSpacing(10)  # Add spacing between widgets
-        bandpass_layout.addWidget(self.bandpass_box_low)
-        bandpass_layout.addSpacing(10)  # Add spacing between widgets
-        bandpass_layout.addWidget(self.bandpass_box_high)
+
 
         # Create a layout for the notch filter
         notch_layout = QtWidgets.QHBoxLayout()
         notch_layout.addWidget(self.notch_checkbox)
-        notch_layout.addSpacing(10)  # Add spacing between widgets
         notch_layout.addWidget(self.notch_box)
 
         # Create a layout for LSL options
@@ -228,24 +238,16 @@ class Streamer:
         # Horizontal layout to contain the classifier buttons
         horizontal_container = QtWidgets.QHBoxLayout()
         horizontal_container.addLayout(lsl_layout)
-        horizontal_container.addSpacing(20)
         horizontal_container.addLayout(left_side_layout)
-        horizontal_container.addSpacing(20)
         horizontal_container.addLayout(center_layout)
-        horizontal_container.addSpacing(20)
         horizontal_container.addLayout(right_side_layout)
 
         # Create a widget to contain the layout
         button_widget = QtWidgets.QWidget()
         button_widget.setLayout(horizontal_container)
 
-        # Create a layout for the main window
-        main_layout = QtWidgets.QVBoxLayout()
-        main_layout.addWidget(button_widget,
-                              alignment=QtCore.Qt.AlignRight | QtCore.Qt.AlignBottom)  # Align to bottom right
+        return button_widget
 
-        # Set the main layout for the window
-        self.win.setLayout(main_layout)
 
     def set_prediction_mode(self):
         """Set the BCI running status"""
@@ -279,56 +281,66 @@ class Streamer:
                              self.lsl_chunk_checkbox.isChecked())
             push_lsl_band_powers(self.band_powers_outlet, band_powers.to_numpy(), ts)
 
-    def _init_timeseries(self):
-        """Initialize the timeseries plots for the EEG channels"""
-        self.plots = list()
-        self.curves = list()
+    def init_plot(self):
+        """Initialize the timeseries plot for the EEG channels and trigger channel."""
+
+
+        # Initialize a single plot for all EEG channels including the trigger
+        self.eeg_plot = pg.PlotWidget()  # Use PlotWidget to create a plot that can be added to a layout
+
+        # Configure the plot settings
+        self.eeg_plot.showAxis('left', False)  # Hide the Y-axis labels
+        self.eeg_plot.setMenuEnabled('left', True)
+        self.eeg_plot.showAxis('bottom', True)
+        self.eeg_plot.setMenuEnabled('bottom', True)
+        #self.eeg_plot.setMinimumWidth(800)  # Set a large minimum width
+        self.eeg_plot.setLabel('bottom', text='Time (s)')
+        self.eeg_plot.getAxis('bottom').setTicks([[(i, str(i / self.sampling_rate)) for i in range(0, self.num_points, int(self.sampling_rate / 2))] + [(self.num_points, str(self.num_points / self.sampling_rate))]])
+
+        self.eeg_plot.setTitle('EEG Channels with Trigger')
+
+        # Set a smaller vertical offset to fit within the reduced height
+        self.offset_amplitude = 200  # Adjusted for smaller plot height
+        self.trigger_offset = -self.offset_amplitude  # Offset for the trigger channel
+
+        # Initialize the curves and quality indicators for each channel
+        self.curves = []
         self.quality_indicators = []
+
         for i, channel in enumerate(self.eeg_channels):
-            if i < len(self.eeg_channels) / 2:
-                row = i
-                col = 0
-            else:
-                row = i - len(self.eeg_channels) / 2
-                col = 1
-            p = self.win.addPlot(row=int(row), col=col)
-            # Increase size of the plot
-            p.showAxis('left', True)
-            p.setMenuEnabled('left', False)
-            p.showAxis('bottom', False)
-            p.setMenuEnabled('bottom', False)
-            p.setMinimumWidth(400)
-            p.setTitle(layouts[self.board_id]["channels"][i])  # Set title to channel name for each plot
-            p.setLabel('left', text='Amp (uV) ')  # Label for y-axis
-            p.setLabel('bottom', text='Time (s)')  # Label for x-axis
-            self.plots.append(p)
-            curve = p.plot(pen=colors[i])  # Set a specific color for each curve
+            # Plot each channel with a different color
+            curve = self.eeg_plot.plot(pen=colors[i])
             self.curves.append(curve)
 
-            # Create a scatter plot item for the quality indicator
+            # Create and add quality indicator
             scatter = ScatterPlotItem(size=20, brush=mkBrush('green'))
-            p.addItem(scatter)
+            # position the item according to the offset for each channel
+            scatter.setPos(-1, i * self.offset_amplitude)
+            self.eeg_plot.addItem(scatter)
             self.quality_indicators.append(scatter)
 
-        # plot trigger channel
-        p = self.win.addPlot(row=len(self.eeg_channels), col=0)
-        p.showAxis('left', True)
-        p.setMenuEnabled('left', False)
-        p.showAxis('bottom', True)
-        p.setMenuEnabled('bottom', False)
-        p.setYRange(0, 5)
-        p.setTitle('Trigger Channel')
-        p.setLabel('left', text='Marker')
-        p.setLabel('bottom', text='Time (s)')
-        # set maximum width to half of the window
-        p.setMinimumWidth(self.win.width() / 3)
+            # Add labels for each channel
+            text_item = pg.TextItem(text=layouts[self.board_id]["channels"][i], anchor=(1, 0.5))
+            text_item.setPos(-10, i * self.offset_amplitude)  # Position label next to the corresponding channel
+            self.eeg_plot.addItem(text_item)
 
-        self.plots.append(p)
-        curve = p.plot(pen='red')
-        self.curves.append(curve)
+            # Add a small indicator for the uV range next to each channel
+            uv_indicator = pg.TextItem(text=f"±{int(self.offset_amplitude / 2)} uV", anchor=(0, 1))
+            uv_indicator.setPos(-10, i * self.offset_amplitude)  # Position the indicator on the right side
+            #self.eeg_plot.addItem(uv_indicator)
+
+        # Add the trigger curve at the bottom
+        trigger_curve = self.eeg_plot.plot(pen='red')
+        self.curves.append(trigger_curve)
+
+        # Add label for the trigger channel
+        trigger_label = pg.TextItem(text="Trigger", anchor=(1, 0.5))
+        trigger_label.setPos(-10, self.trigger_offset)  # Position label next to the trigger channel
+        self.eeg_plot.addItem(trigger_label)
+        return self.eeg_plot
 
     def update_plot(self):
-        """ Update the plot with new data"""
+        """Update the plot with new data."""
         filtered_eeg = np.zeros((len(self.eeg_channels) + 1, self.num_points))
         if self.is_streaming:
             if self.window_size == 0:
@@ -341,19 +353,27 @@ class Streamer:
 
             for count, channel in enumerate(self.eeg_channels):
                 ch_data = eeg[count]
-                if self.plot:
-                    self.curves[count].setData(ch_data)
-                    # Rescale the plot
-                    self.plots[count].setYRange(np.min(ch_data), np.max(ch_data))
                 filtered_eeg[count] = ch_data
 
-            trigger = data[-1]
-            ts_channel = self.board.get_timestamp_channel(self.board_id)
-            filtered_eeg[-1] = trigger
+                if self.plot:
+                    # Apply the offset for display purposes only
+                    ch_data_offset = ch_data + count * self.offset_amplitude
+                    self.curves[count].setData(ch_data_offset)
+
+            # Plot the trigger channel, scaled and offset appropriately
+            trigger = data[-1] * 100
+            #filtered_eeg[-1] = trigger
             if self.plot:
-                # plot trigger channel
-                self.curves[-1].setData(trigger.tolist())
-                self.update_quality_indicators(filtered_eeg, push=True)
+                # Rescale trigger to fit the display range and apply the offset
+                trigger_rescaled = (trigger * (self.offset_amplitude / 5.0) + self.trigger_offset)
+                self.curves[-1].setData(trigger_rescaled.tolist())
+
+            # Adjust the Y range to fit all channels with their offsets and the trigger
+            min_display = self.trigger_offset - self.offset_amplitude
+            max_display = (len(self.eeg_channels) - 1) * self.offset_amplitude + np.max(eeg)
+            self.eeg_plot.setYRange(min_display, max_display)
+
+            self.update_quality_indicators(filtered_eeg, push=True)
             self.app.processEvents()
 
     def export_file(self, filename=None, folder='export', format='csv'):

@@ -69,7 +69,7 @@ def main():
     try:
         board_shim.prepare_session()
         board_shim.start_stream(streamer_params=args.streamer_params)
-        streamer = Streamer(board_shim, params=params, plot=True, save_data=True, window_size=window_size)
+        streamer = Streamer(board_shim, params=params, window_size=window_size)
     except BaseException:
         logging.warning('Exception', exc_info=True)
     finally:
