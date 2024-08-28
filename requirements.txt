@@ -16,3 +16,4 @@ pyarrow
 pybluez2
 future==1.0.0
 setuptools==68.2.0
+PyYAML==6.0.1
