@@ -196,6 +196,8 @@ class Streamer:
         # Create a layout for the bandpass filter
         bandpass_layout = QtWidgets.QHBoxLayout()
         bandpass_layout.addWidget(self.bandpass_checkbox)
+        bandpass_layout.addWidget(self.bandpass_box_low)
+        bandpass_layout.addWidget(self.bandpass_box_high)
 
 
         # Create a layout for the notch filter
