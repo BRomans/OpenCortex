@@ -1,0 +1,11 @@
+plot: true
+save_data: true
+model: LDA
+nclasses: 4
+on_time: 250
+quality_thresholds:
+  - [-100, -50, 'yellow', 0.5]
+  - [-50, 50, 'green', 1.0]
+  - [50, 100, 'yellow', 0.5]
+update_speed_ms: 1000
+update_plot_speed_ms: 1000
