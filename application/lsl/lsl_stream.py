@@ -22,13 +22,16 @@ class LSLStreamThread(QThread):
 
     def run(self):
         """ Run the LSL stream thread."""
-        logging.info("Looking for an LSL stream...")
         streams = []
 
         # Create a new inlet to read from the stream, check until a stream is found
         while not streams:
-            streams = resolve_stream('name', 'Cortex Markers')
-            time.sleep(1)
+            logging.info("Looking for an LSL stream...")
+            try:
+                streams = resolve_stream("type", "Markers")
+            except Exception as e:
+                logging.error(f"Error while resolving LSL stream: {e}")
+
         logging.info("LSL stream found: {}".format(streams[0].name()))
         inlet = StreamInlet(streams[0],
                             processing_flags=pylsl.proc_clocksync | pylsl.proc_dejitter | pylsl.proc_threadsafe)
@@ -67,7 +70,7 @@ class LSLStreamThread(QThread):
                     self.new_sample.emit(marker[0], timestamp)
             except Exception as e:
                 logging.error(f"Error while reading LSL stream: {e}")
-                streams = resolve_stream('name', 'Cortex Markers')
+                streams = resolve_stream('type', 'Markers')
                 logging.info("LSL stream found: {}".format(streams[0].name()))
                 inlet = StreamInlet(streams[0],
                                     processing_flags=pylsl.proc_clocksync | pylsl.proc_dejitter | pylsl.proc_threadsafe)
@@ -95,7 +98,7 @@ def start_lsl_eeg_stream(channels, fs, source_id, stream_name='Cortex EEG', type
             chs.append_child("channel").append_child_value("name", ch)
         chs.append_child("channel").append_child_value("name", "Trigger")
         eeg_outlet = StreamOutlet(info)
-        logging.info(f"LSL EEG stream started {info.name()}")
+        logging.debug(f"LSL EEG stream started {info.name()}")
         return eeg_outlet
     except Exception as e:
         logging.error(f"Error starting LSL stream: {e}")
@@ -121,7 +124,7 @@ def start_lsl_power_bands_stream(channels, fs, source_id, stream_name='Cortex PS
         for ch in channels:
             chs.append_child("channel").append_child_value("name", ch)
         band_powers_outlet = StreamOutlet(info)
-        logging.info(f"LSL power bands stream started {info.name()}")
+        logging.debug(f"LSL power bands stream started {info.name()}")
         return band_powers_outlet
     except Exception as e:
         logging.error(f"Error starting LSL stream: {e}")
@@ -141,7 +144,7 @@ def start_lsl_prediction_stream(fs, source_id, stream_name='Cortex Inference', t
                                 nominal_srate=fs, channel_format='string',
                                 source_id=source_id)
         prediction_outlet = pylsl.StreamOutlet(info)
-        logging.info(f"LSL prediction stream started {info.name()}")
+        logging.debug(f"LSL prediction stream started {info.name()}")
         return prediction_outlet
     except Exception as e:
         logging.error(f"Error starting LSL stream: {e}")
@@ -162,7 +165,7 @@ def start_lsl_quality_stream(channels, fs, source_id, stream_name='Cortex Qualit
                                 nominal_srate=fs, channel_format='float32',
                                 source_id=source_id)
         quality_outlet = StreamOutlet(info)
-        logging.info(f"LSL quality stream started {info.name()}")
+        logging.debug(f"LSL quality stream started {info.name()}")
         return quality_outlet
     except Exception as e:
         logging.error(f"Error starting LSL stream: {e}")
@@ -192,12 +195,12 @@ def push_lsl_raw_eeg(outlet: StreamOutlet, data, start_eeg, end_eeg, counter, ts
         ts = ts - ts_to_lsl_offset
         if chunk:
             outlet.push_chunk(eeg.T.tolist(), ts)
-            logging.info(f"Pushed chunk {counter} to LSL stream {outlet.get_info().name()}")
+            logging.debug(f"Pushed chunk {counter} to LSL stream {outlet.get_info().name()}")
         else:
             for i in range(eeg.shape[1]):
                 sample = eeg[:, i]
                 outlet.push_sample(sample.tolist(), ts[i])
-            logging.info(f"Pushed {eeg.shape[1]} samples  of chunk {counter} to LSL stream {outlet.get_info().name()}")
+            logging.debug(f"Pushed {eeg.shape[1]} samples  of chunk {counter} to LSL stream {outlet.get_info().name()}")
     except Exception as e:
         logging.error(f"Error pushing chunk to LSL: {e}")
 
@@ -211,7 +214,7 @@ def push_lsl_band_powers(outlet: StreamOutlet, band_powers, timestamp):
     """
     try:
         outlet.push_chunk(band_powers.tolist(), timestamp)
-        logging.info(
+        logging.debug(
             f"Pushed band powers {' '.join(list(freq_bands.keys()))} to LSL stream {outlet.get_info().name()}")
     except Exception as e:
         logging.error(f"Error pushing band powers to LSL: {e}")
@@ -227,7 +230,7 @@ def push_lsl_prediction(outlet: StreamOutlet, prediction):
         # Serialize the dictionary to a JSON string
         prediction_json = json.dumps(prediction, default=convert_to_serializable)
         outlet.push_sample([prediction_json])
-        logging.info(f"Pushed prediction {prediction} to LSL stream {outlet.get_info().name()} ")
+        logging.debug(f"Pushed prediction {prediction} to LSL stream {outlet.get_info().name()} ")
     except Exception as e:
         logging.error(f"Error pushing prediction to LSL: {e}")
 
@@ -240,6 +243,6 @@ def push_lsl_quality(outlet: StreamOutlet, quality):
     """
     try:
         outlet.push_sample(quality)
-        logging.info(f"Pushed quality {quality} to LSL stream {outlet.get_info().name()}")
+        logging.debug(f"Pushed quality {quality} to LSL stream {outlet.get_info().name()}")
     except Exception as e:
         logging.error(f"Error pushing quality to LSL: {e}")
