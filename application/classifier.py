@@ -5,14 +5,16 @@ import matplotlib
 from brainflow import BoardShim, BoardIds
 from imblearn.over_sampling import RandomOverSampler
 from mne import set_eeg_reference, find_events, Epochs
-from sklearn.model_selection import cross_val_score, StratifiedKFold
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.metrics import f1_score, make_scorer
+from sklearn.model_selection import cross_val_score, StratifiedKFold, cross_val_predict
 from sklearn.preprocessing import LabelEncoder, StandardScaler
 from sklearn.svm import SVC
 from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
 from matplotlib import pyplot as plt
 from utils.layouts import layouts
 from utils.loader import convert_to_mne
-from processing.preprocessing import basic_preprocessing_pipeline, extract_epochs, make_overlapping_epochs
+from processing.preprocessing import make_overlapping_epochs
 from validation.plotting import plot_cross_validated_roc_curve, plot_cross_validated_confusion_matrix, normalize
 
 # turn off MNE logging
@@ -24,6 +26,7 @@ np.random.seed(random_state)
 models = {
     'SVM': SVC(kernel='linear', C=1, probability=True, random_state=random_state),
     'LDA': LinearDiscriminantAnalysis(),
+    'RF': RandomForestClassifier(n_estimators=10, random_state=random_state)
 }
 
 
@@ -32,7 +35,7 @@ class Classifier:
     Classifier class to train and evaluate custom models on EEG data
     """
 
-    def __init__(self, model, board_id, nclasses=2):
+    def __init__(self, model, board_id):
         if model is None:
             raise ValueError("Model cannot be None")
         self.model = models[model]
@@ -41,9 +44,9 @@ class Classifier:
         self.board_id = board_id
         self.fs = BoardShim.get_sampling_rate(self.board_id)
         self.chs = layouts[self.board_id]["channels"]
-        self.nclasses = nclasses
         self.epoch_start = -0.1
-        self.epoch_end = 0.5
+        self.epoch_end = 0.7
+        self.cv_splits = 5
         self.seg_start = 50
         self.seg_end = 150
         self.baseline = (self.epoch_start, 0)
@@ -67,6 +70,7 @@ class Classifier:
         le = LabelEncoder()
         X = self.train_X.reshape(self.train_X.shape[0], -1)
         y = le.fit_transform(self.train_y)
+        logging.info(f"Encoded labels: {y}")
 
         if oversample:
             X, y = oversampler.fit_resample(X, y)
@@ -77,7 +81,7 @@ class Classifier:
         X = scaler.fit_transform(X)
         self.scaler = scaler
 
-        self.cross_validate(X, y)
+        self.cross_validate(X, y, n_splits=self.cv_splits)
 
         self.model.fit(X, y)
 
@@ -89,9 +93,11 @@ class Classifier:
         :param n_splits: int, number of splits for cross-validation
         :return: cross-validated accuracy and F1 scores
         """
+        method = 'predict'
         cv = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=random_state)
-        cv_accuracy = cross_val_score(self.model, X, y, cv=cv)
-        cv_f1 = cross_val_score(self.model, X, y, cv=cv, scoring='f1')
+        cv_accuracy = cross_val_predict(self.model, X, y, cv=cv, method=method)
+        f1_scorer = make_scorer(f1_score, average='weighted')
+        cv_f1 = cross_val_score(self.model, X, y, cv=cv, scoring=f1_scorer)
         logging.info(f"Cross-validation accuracy: {cv_accuracy.mean():.2f} +/- {cv_accuracy.std():.2f}")
         logging.info(f"Cross-validation F1: {cv_f1.mean():.2f} +/- {cv_f1.std():.2f}")
         return cv_accuracy, cv_f1
@@ -134,17 +140,10 @@ class Classifier:
             logging.info(f'Found matching events sequence: {np.array(trial_events)}')
 
         events[:, 2][events[:, 2] != 1] = 3
-        try:
-            ev_ids = {'NT': 3, 'T': 1}
-            event_colors = {3: 'r', 1: 'g'}
-            #raw.plot(events=events, event_id=ev_ids, event_color=event_colors, color='Gray', block=True, clipping=None, scalings=25e-6)
-        except Exception as e:
-            logging.error(f"Error while plotting events: {e}")
 
-        #filtered = basic_preprocessing_pipeline(raw, lp_freq=2, hp_freq=15, notch_freqs=(50, 60), filter_length=filter_length)
         eps = make_overlapping_epochs(data=raw, events=events, tmin=self.epoch_start, tmax=self.epoch_end,
                                       baseline=self.baseline, fs=self.fs)
-        preprocessed = eps.get_data(picks='eeg')[:, :, self.seg_start:self.seg_end]
+        preprocessed = eps.get_data(picks='eeg')#[:, :, self.seg_start:self.seg_end]
         labels = eps.events[:, -1]
         logging.info(f"Data preprocessed and epochs extracted with shape {preprocessed.shape}")
         return preprocessed, labels
@@ -167,7 +166,7 @@ class Classifier:
         if not group:
             return self.predict_class(X) if not proba else self.predict_probabilities(X)
         else:
-            return self.group_predictions(self.predict_probabilities(X))
+            return self.group_predictions(X, proba=proba)
 
     def predict_class(self, X):
         """
@@ -185,19 +184,22 @@ class Classifier:
         """
         return self.model.predict_proba(X)
 
-    def group_predictions(self, y, n_method='z-score'):
+    def group_predictions(self, X, norm='z-score', proba=True):
+        y = self.predict_class(X) if not proba else self.predict_probabilities(X)
         seq = self.sequence
-        y_1 = y[:, 1]
+        if proba:
+            y_1 = y[:, 1]
 
-        y_1 = normalize(y_1, method=n_method)
-        # Round the probabilities to 4 decimal places
-        y_1 = np.round(y_1, 4)
+            #y_1 = normalize(y_1, method=norm)
 
-        # Determine the class with the highest probability in y_1
-        max_prob_class = np.argmax(y_1) + 1  # Adding 1 to match 1-indexed classes
-        output = {'class': max_prob_class}
-        for idx, prediction in enumerate(seq):
-            output[str(seq[idx])] = y_1[idx]
+            # Determine the class with the highest probability in y_1
+            output = {'class': np.argmax(y_1) + 1}  # Adding 1 to match 1-indexed classes
+            for idx, prediction in enumerate(seq):
+                output[str(seq[idx])] = y_1[idx]
+        else:
+            output = {'class': np.argmax(y) + 1}
+            for idx, prediction in enumerate(seq):
+                output[str(seq[idx])] = y[idx]
         return output
 
     def plot_roc_curve(self, n_splits=5):
