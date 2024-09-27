@@ -41,8 +41,10 @@ class Streamer:
         self.plot = config.get('plot', True)
         self.save_data = config.get('save_data', True)
         self.model = config.get('model', 'LDA')
-        self.nclasses = config.get('nclasses', 4)
-        self.on_time = config.get('on_time', 250)
+        self.proba = config.get('proba', False)
+        self.group_predictions = config.get('group_predictions', False)
+        self.nclasses = config.get('nclasses', 3)
+        self.flash_time = config.get('flash_time', 250)
         self.quality_thresholds = config.get('quality_thresholds', [(-100, -50, 'yellow', 0.5), (-50, 50, 'green', 1.0),
                                                                     (50, 100, 'yellow', 0.5)])
         self.update_speed_ms = config.get('update_speed_ms', 1000 * self.window_size)
@@ -68,23 +70,22 @@ class Streamer:
         self.classifier = None
         self.executor = ThreadPoolExecutor(max_workers=5)
         if self.model is not None:
-            self.over_sample = False
+            self.over_sample = config.get('oversample', False)
             self.classifier_thread = threading.Thread(target=self.init_classifier)
             self.classifier_thread.start()
 
         self.app = QtWidgets.QApplication([])
 
         # Calculate time interval for prediction
-        self.off_time = (self.on_time * (self.nclasses - 1))
+        self.off_time = (self.flash_time * (self.nclasses - 1))
         logging.debug(f"Off time: {self.off_time} ms")
         self.prediction_interval = int(
-            self.on_time + self.off_time) * 2  # we take double the time, so we can loop on it
-        logging.debug(f"Prediction interval: {self.prediction_interval} ms")
+            self.flash_time + self.off_time) * 2  # we take double the time, so we can loop on it
+        logging.info(f"Prediction interval: {self.prediction_interval} ms")
         # calculate how many datapoints based on the sampling rate
         self.prediction_datapoints = int(self.prediction_interval * self.sampling_rate / 1000)
         logging.debug(f"Prediction interval in datapoints: {self.prediction_datapoints}")
 
-        logging.info("Looking for an LSL stream...")
         # Connect to the LSL stream threads
         self.prediction_timer = QtCore.QTimer()
         self.lsl_thread = LSLStreamThread()
@@ -363,7 +364,7 @@ class Streamer:
                     self.curves[count].setData(ch_data_offset)
 
             # Plot the trigger channel, scaled and offset appropriately
-            trigger = data[-1] * 100
+            trigger = data[-1] #* 10
             #filtered_eeg[-1] = trigger
             if self.plot:
                 # Rescale trigger to fit the display range and apply the offset
@@ -372,7 +373,7 @@ class Streamer:
 
             # Adjust the Y range to fit all channels with their offsets and the trigger
             min_display = self.trigger_offset - self.offset_amplitude
-            max_display = (len(self.eeg_channels) - 1) * self.offset_amplitude + np.max(eeg)
+            max_display = (len(self.eeg_channels)) * self.offset_amplitude
             self.eeg_plot.setYRange(min_display, max_display)
 
             self.update_quality_indicators(filtered_eeg, push=True)
@@ -435,7 +436,7 @@ class Streamer:
         logging.info(f"Training duration: {training_length}")
         data = self.board.get_current_board_data(training_interval)
         self.filter_data_buffer(data)
-        self.classifier.train(data, oversample=self.over_sample)
+        self.classifier.train(data, oversample=self.over_sample, proba=self.proba)
 
     def start_prediction(self):
         """Start the prediction timer."""
@@ -448,7 +449,7 @@ class Streamer:
     def _predict_class(self, data):
         """Internal method to predict the class of the data."""
         try:
-            output = self.classifier.predict(data, proba=True, group=True)
+            output = self.classifier.predict(data, proba=self.proba, group=self.group_predictions)
             push_lsl_prediction(self.prediction_outlet, output)
             logging.info(f"Predicted class: {output}")
         except Exception as e:
