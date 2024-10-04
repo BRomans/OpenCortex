@@ -1,5 +1,5 @@
-# Cortex BCI Streamer
-CortexStreamer is a fully-featured EEG streaming app to stream EEG data and markers.
+# OpenCortex
+OpenCortex is a fully-featured EEG streaming app to stream EEG data and markers.
 
 - GUI to plot EEG in real-time
 - signal filters (visualization only)
