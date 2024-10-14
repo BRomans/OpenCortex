@@ -515,14 +515,14 @@ class Streamer:
                               filter_type=FilterTypes.BUTTERWORTH_ZERO_PHASE, ripple=0):
         DataFilter.detrend(ch_data, DetrendOperations.CONSTANT.value)
         if start_freq >= stop_freq:
-            logging.error("Start frequency should be less than stop frequency")
+            logging.error("Band-pass Filter: Start frequency should be less than stop frequency")
             return
         if start_freq < 0 or stop_freq < 0:
-            logging.error("Frequency values should be positive")
+            logging.error("Band-pass Filter: Frequency values should be positive")
             return
         if start_freq > self.sampling_rate / 2 or stop_freq > self.sampling_rate / 2:
             logging.error(
-                "Frequency values should be less than half of the sampling rate in respect of Nyquist theorem")
+                "Band-pass Filter: Frequency values should be less than half of the sampling rate in respect of Nyquist theorem")
             return
         try:
             DataFilter.perform_bandpass(ch_data, self.sampling_rate, start_freq, stop_freq, order, filter_type, ripple)
@@ -562,6 +562,7 @@ class Streamer:
     def quit(self):
         """ Quit the application, join the threads and stop the streaming"""
         if self.save_data_checkbox.isChecked():
+            logging.info("Exporting data to file")
             self.export_file()
         self.lsl_thread.quit()
         self.classifier_thread.join()
