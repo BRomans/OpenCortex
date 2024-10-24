@@ -436,7 +436,7 @@ class Streamer:
         logging.info(f"Training duration: {training_length}")
         data = self.board.get_current_board_data(training_interval)
         self.filter_data_buffer(data)
-        self.classifier.train(data, oversample=self.over_sample, proba=self.proba)
+        self.classifier.train(data, oversample=self.over_sample)
 
     def start_prediction(self):
         """Start the prediction timer."""
