@@ -11,4 +11,4 @@ quality_thresholds:
   - [-50, 50, 'green', 1.0]
   - [50, 100, 'yellow', 0.5]
 update_speed_ms: 1000
-update_plot_speed_ms: 1000
+update_plot_speed_ms: 250
