@@ -58,12 +58,12 @@ class LSLStreamThread(QThread):
                     self.new_sample.emit(marker[0], timestamp)
                     self.start_predicting.emit(marker[0], timestamp)
                     date_time = datetime.fromtimestamp(time.time())
-                    logging.info(f"Start application trigger {marker[0]} written at {date_time}")
+                    logging.info(f"Start inference trigger {marker[0]} written at {date_time}")
                 elif (marker[0] == '101'):
                     self.new_sample.emit(marker[0], timestamp)
                     self.stop_predicting.emit(marker[0], timestamp)
                     date_time = datetime.fromtimestamp(time.time())
-                    logging.info(f"Stop application trigger {marker[0]} written at {date_time}")
+                    logging.info(f"Stop inference trigger {marker[0]} written at {date_time}")
                 else:
                     # Emit the new sample data
                     logging.debug(f"New sample: {marker[0]} after {delta_ts}")
