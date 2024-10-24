@@ -15,6 +15,8 @@ def normalize(y, method='z-score'):
         if std_y == 0:
             return np.zeros_like(y)
         return (y - np.mean(y)) / std_y
+    elif method == 'softmax':
+        return np.exp(y) / np.sum(np.exp(y))
     elif method == 'min-max':
         min_y = np.min(y)
         max_y = np.max(y)
