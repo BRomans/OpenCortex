@@ -7,7 +7,7 @@ from imblearn.over_sampling import RandomOverSampler
 from mne import set_eeg_reference, find_events, Epochs
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import f1_score, make_scorer
-from sklearn.model_selection import cross_val_score, StratifiedKFold, cross_val_predict
+from sklearn.model_selection import cross_val_score, StratifiedKFold, cross_val_predict, train_test_split
 from sklearn.preprocessing import LabelEncoder, StandardScaler
 from sklearn.svm import SVC
 from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
@@ -55,6 +55,8 @@ class Classifier:
         self.train_y = None
         self.prep_X = None
         self.prep_Y = None
+        self.eval_X = None
+        self.eval_y = None
 
     def train(self, data, scaler=StandardScaler(), oversample=False, random_state=random_state):
         """
@@ -64,26 +66,27 @@ class Classifier:
         :param oversample: bool, whether to oversample the minority class or not
         :param random_state: int, random state for reproducibility
         """
-        self.train_X, self.train_y = self.preprocess(data)
+        prep_data, labels = self.preprocess(data)
 
         oversampler = RandomOverSampler(sampling_strategy='minority', random_state=random_state)
         le = LabelEncoder()
-        X = self.train_X.reshape(self.train_X.shape[0], -1)
-        y = le.fit_transform(self.train_y)
+        X = prep_data.reshape(prep_data.shape[0], -1)
+        y = le.fit_transform(labels)
         logging.info(f"Encoded labels: {y}")
-
-        if oversample:
-            X, y = oversampler.fit_resample(X, y)
 
         self.prep_X = X
         self.prep_Y = y
 
-        X = scaler.fit_transform(X)
+        X_train, X_eval, y_train, y_eval = train_test_split(X, y, test_size=0.2, random_state=random_state)
+
+        if oversample:
+            X_train, y_train = oversampler.fit_resample(X_train, y_train)
+
+        X_train = scaler.fit_transform(X_train)
         self.scaler = scaler
-
-        self.cross_validate(X, y, n_splits=self.cv_splits)
-
-        self.model.fit(X, y)
+        self.cross_validate(X_train, y_train, n_splits=self.cv_splits)
+        self.model.fit(X_train, y_train)
+        self.evaluate(X_eval, y_eval)
 
     def cross_validate(self, X, y, n_splits=5):
         """
@@ -95,12 +98,27 @@ class Classifier:
         """
         method = 'predict'
         cv = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=random_state)
-        cv_accuracy = cross_val_predict(self.model, X, y, cv=cv, method=method)
+        cv_accuracy = cross_val_score(self.model, X, y, cv=cv, scoring='accuracy')
         f1_scorer = make_scorer(f1_score, average='weighted')
         cv_f1 = cross_val_score(self.model, X, y, cv=cv, scoring=f1_scorer)
         logging.info(f"Cross-validation accuracy: {cv_accuracy.mean():.2f} +/- {cv_accuracy.std():.2f}")
         logging.info(f"Cross-validation F1: {cv_f1.mean():.2f} +/- {cv_f1.std():.2f}")
         return cv_accuracy, cv_f1
+
+    def evaluate(self, X, y):
+        """
+        Evaluate the model on the test data
+        :param X: numpy array of shape (n_samples, n_features)
+        :param y: numpy array of shape (n_samples, )
+        :return: accuracy and F1 scores
+        """
+        X = self.scaler.transform(X)
+        y_pred = self.model.predict(X)
+        accuracy = np.mean(y_pred == y)
+        f1 = f1_score(y, y_pred, average='weighted')
+        logging.info(f"Eval Accuracy: {accuracy:.2f}")
+        logging.info(f"Eval F1: {f1:.2f}")
+        return accuracy, f1
 
     def preprocess(self, data):
         start_eeg = layouts[self.board_id]["eeg_start"]
@@ -189,9 +207,8 @@ class Classifier:
         seq = self.sequence
         if proba:
             y_1 = y[:, 1]
-
-            #y_1 = normalize(y_1, method=norm)
-
+            y_1 = normalize(y_1, method='softmax')
+            y_1 = np.round(y_1, 2)
             # Determine the class with the highest probability in y_1
             output = {'class': np.argmax(y_1) + 1}  # Adding 1 to match 1-indexed classes
             for idx, prediction in enumerate(seq):
