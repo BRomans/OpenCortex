@@ -60,6 +60,7 @@ class Streamer:
         self.board = board
         self.board_id = self.board.get_board_id()
         self.eeg_channels = BoardShim.get_eeg_channels(self.board_id)
+        logging.info(f"EEG channels: {BoardShim.get_eeg_names(self.board_id)}")
         self.sampling_rate = BoardShim.get_sampling_rate(self.board_id)
         self.chunk_counter = 0
         self.num_points = self.window_size * self.sampling_rate
@@ -80,7 +81,7 @@ class Streamer:
         self.off_time = (self.flash_time * (self.nclasses - 1))
         logging.debug(f"Off time: {self.off_time} ms")
         self.prediction_interval = int(
-            self.flash_time + self.off_time) * 2  # we take double the time, so we can loop on it
+            self.flash_time + self.off_time) * 3  # we take double the time, so we can loop on it
         logging.info(f"Prediction interval: {self.prediction_interval} ms")
         # calculate how many datapoints based on the sampling rate
         self.prediction_datapoints = int(self.prediction_interval * self.sampling_rate / 1000)
@@ -120,14 +121,14 @@ class Streamer:
         self.plot_timer.start(self.update_plot_speed_ms)
 
         # Initialize LSL streams
-        self.eeg_outlet = start_lsl_eeg_stream(channels=layouts[self.board_id]["channels"], fs=self.sampling_rate,
+        self.eeg_outlet = start_lsl_eeg_stream(channels=BoardShim.get_eeg_names(self.board_id), fs=self.sampling_rate,
                                                source_id=self.board.get_device_name(self.board_id))
         self.prediction_outlet = start_lsl_prediction_stream(fs=self.sampling_rate,
                                                              source_id=self.board.get_device_name(self.board_id))
-        self.band_powers_outlet = start_lsl_power_bands_stream(channels=layouts[self.board_id]["channels"],
+        self.band_powers_outlet = start_lsl_power_bands_stream(channels=BoardShim.get_eeg_names(self.board_id),
                                                                fs=self.sampling_rate,
                                                                source_id=self.board.get_device_name(self.board_id))
-        self.quality_outlet = start_lsl_quality_stream(channels=layouts[self.board_id]["channels"],
+        self.quality_outlet = start_lsl_quality_stream(channels=BoardShim.get_eeg_names(self.board_id),
                                                        fs=self.sampling_rate,
                                                        source_id=self.board.get_device_name(self.board_id))
 
@@ -323,7 +324,7 @@ class Streamer:
             self.quality_indicators.append(scatter)
 
             # Add labels for each channel
-            text_item = pg.TextItem(text=layouts[self.board_id]["channels"][i], anchor=(1, 0.5))
+            text_item = pg.TextItem(text=BoardShim.get_eeg_names(self.board_id)[i], anchor=(1, 0.5))
             text_item.setPos(-10, i * self.offset_amplitude)  # Position label next to the corresponding channel
             self.eeg_plot.addItem(text_item)
 
