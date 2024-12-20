@@ -1,10 +1,10 @@
 plot: true
 save_data: true
 model: SVM
-nclasses: 6
+nclasses: 5
 proba: true
 group_predictions: true
-flash_time: 200
+flash_time: 150
 oversample: false
 quality_thresholds:
   - [-100, -50, 'yellow', 0.5]

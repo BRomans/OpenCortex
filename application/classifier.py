@@ -158,9 +158,11 @@ class Classifier:
             logging.info(f'Found matching events sequence: {np.array(trial_events)}')
 
         events[:, 2][events[:, 2] != 1] = 3
+        logging.info(f"Events: {events.shape} {np.array(events[:, 2])}")
 
-        eps = make_overlapping_epochs(data=raw, events=events, tmin=self.epoch_start, tmax=self.epoch_end,
-                                      baseline=self.baseline, fs=self.fs)
+
+        eps = Epochs(raw, events, event_id={'T': 1, 'NT': 3}, tmin=-.1, tmax=0.9, baseline=(-.1, 0.0), preload=True)
+
         preprocessed = eps.get_data(picks='eeg')#[:, :, self.seg_start:self.seg_end]
         labels = eps.events[:, -1]
         logging.info(f"Data preprocessed and epochs extracted with shape {preprocessed.shape}")
