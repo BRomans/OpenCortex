@@ -45,6 +45,8 @@ class Streamer:
         self.group_predictions = config.get('group_predictions', False)
         self.nclasses = config.get('nclasses', 3)
         self.flash_time = config.get('flash_time', 250)
+        self.epoch_length_ms = config.get('epoch_length_ms', 1000)
+        self.baseline_ms = config.get('baseline_ms', 100)
         self.quality_thresholds = config.get('quality_thresholds', [(-100, -50, 'yellow', 0.5), (-50, 50, 'green', 1.0),
                                                                     (50, 100, 'yellow', 0.5)])
         self.update_speed_ms = config.get('update_speed_ms', 1000 * self.window_size)
@@ -52,7 +54,7 @@ class Streamer:
 
         time.sleep(self.window_size)  # Wait for the board to be ready
         self.is_streaming = True
-        self.prediction_mode = False
+        self.inference_mode = False
         self.first_prediction = True
         self.params = params
         self.initial_ts = time.time()
@@ -81,20 +83,27 @@ class Streamer:
         self.off_time = (self.flash_time * (self.nclasses - 1))
         logging.debug(f"Off time: {self.off_time} ms")
         self.prediction_interval = int(
-            self.flash_time + self.off_time) * 3  # we take double the time, so we can loop on it
+            2*self.flash_time + self.off_time)  # * 3  # we take double the time, so we can loop on it
         logging.info(f"Prediction interval: {self.prediction_interval} ms")
-        # calculate how many datapoints based on the sampling rate
-        self.prediction_datapoints = int(self.prediction_interval * self.sampling_rate / 1000)
+        self.epoch_data_points = int(self.epoch_length_ms * self.sampling_rate / 1000)
+
+        self.inference_ms = self.baseline_ms + (self.flash_time * self.nclasses) + self.epoch_length_ms
+
+        self.prediction_datapoints = int(self.inference_ms * self.sampling_rate / 1000)
+        self.slicing_trigger = (self.epoch_length_ms + self.baseline_ms) // self.flash_time
+        if self.slicing_trigger > self.nclasses:
+            self.slicing_trigger = self.nclasses
         logging.debug(f"Prediction interval in datapoints: {self.prediction_datapoints}")
 
         # Connect to the LSL stream threads
         self.prediction_timer = QtCore.QTimer()
+        self.prediction_timer.timeout.connect(self.get_prediction_data)
         self.lsl_thread = LSLStreamThread()
         self.lsl_thread.new_sample.connect(self.write_trigger)
         self.lsl_thread.set_train_start.connect(self.set_train_start)
         self.lsl_thread.start_train.connect(self.train_classifier)
-        self.lsl_thread.start_predicting.connect(self.set_prediction_mode)
-        self.lsl_thread.stop_predicting.connect(self.set_prediction_mode)
+        self.lsl_thread.start_predicting.connect(self.set_inference_mode)
+        self.lsl_thread.stop_predicting.connect(self.set_inference_mode)
         self.lsl_thread.start()
 
         self.win = pg.GraphicsLayoutWidget(title='Cortex Streamer', size=(1200, 800))
@@ -201,7 +210,6 @@ class Streamer:
         bandpass_layout.addWidget(self.bandpass_box_low)
         bandpass_layout.addWidget(self.bandpass_box_high)
 
-
         # Create a layout for the notch filter
         notch_layout = QtWidgets.QHBoxLayout()
         notch_layout.addWidget(self.notch_checkbox)
@@ -252,11 +260,10 @@ class Streamer:
 
         return button_widget
 
-
-    def set_prediction_mode(self):
+    def set_inference_mode(self):
         """Set the BCI running status"""
-        self.prediction_mode = not self.prediction_mode
-        self.classifier.set_prediction_mode(self.prediction_mode)
+        self.inference_mode = not self.inference_mode
+        self.classifier.set_inference_mode(self.inference_mode)
 
     def update_data_buffer(self):
         """ Update the plot with new data"""
@@ -288,7 +295,6 @@ class Streamer:
     def init_plot(self):
         """Initialize the timeseries plot for the EEG channels and trigger channel."""
 
-
         # Initialize a single plot for all EEG channels including the trigger
         self.eeg_plot = pg.PlotWidget()  # Use PlotWidget to create a plot that can be added to a layout
 
@@ -299,7 +305,9 @@ class Streamer:
         self.eeg_plot.setMenuEnabled('bottom', True)
         #self.eeg_plot.setMinimumWidth(800)  # Set a large minimum width
         self.eeg_plot.setLabel('bottom', text='Time (s)')
-        self.eeg_plot.getAxis('bottom').setTicks([[(i, str(i / self.sampling_rate)) for i in range(0, self.num_points, int(self.sampling_rate / 2))] + [(self.num_points, str(self.num_points / self.sampling_rate))]])
+        self.eeg_plot.getAxis('bottom').setTicks([[(i, str(i / self.sampling_rate)) for i in
+                                                   range(0, self.num_points, int(self.sampling_rate / 2))] + [
+                                                      (self.num_points, str(self.num_points / self.sampling_rate))]])
 
         self.eeg_plot.setTitle('EEG Channels with Trigger')
 
@@ -365,8 +373,7 @@ class Streamer:
                     self.curves[count].setData(ch_data_offset)
 
             # Plot the trigger channel, scaled and offset appropriately
-            trigger = data[-1] #* 10
-            #filtered_eeg[-1] = trigger
+            trigger = data[-1]
             if self.plot:
                 # Rescale trigger to fit the display range and apply the offset
                 trigger_rescaled = (trigger * (self.offset_amplitude / 5.0) + self.trigger_offset)
@@ -414,10 +421,24 @@ class Streamer:
         if timestamp == 0:
             timestamp = time.time()
         self.board.insert_marker(int(trigger))
-        if self.prediction_mode:
-            if int(trigger) == self.nclasses and not self.first_prediction:  # half way trial
+        if self.inference_mode:
+
+
+            # TODO figure out the criterion for the slicing trigger
+            if self.nclasses < 10:
+                slicing_trigger = self.nclasses # add two to ensure the whole event time is covered
+            elif self.nclasses >= 10:
+                if self.nclasses % 2 == 0:
+                    slicing_trigger = (self.nclasses // 2) + 1 # add one to ensure the whole event time is covered
+                else:
+                    slicing_trigger = (self.nclasses // 2) + 2 # add two to ensure the whole event time is covered
+
+            slicing_trigger = self.slicing_trigger # Stick with basic formula
+
+
+            if int(trigger) == slicing_trigger and not self.first_prediction:  # half way trial
                 self.predict_class()
-            elif int(trigger) == self.nclasses and self.first_prediction:
+            elif int(trigger) == slicing_trigger and self.first_prediction:
                 logging.debug('Skipping first prediction')
                 self.first_prediction = False
 
@@ -439,13 +460,19 @@ class Streamer:
         self.filter_data_buffer(data)
         self.classifier.train(data, oversample=self.over_sample)
 
-    def start_prediction(self):
+    def start_prediction_timer(self):
         """Start the prediction timer."""
         self.prediction_timer.start(self.prediction_interval)
 
-    def stop_prediction(self):
+    def stop_prediction_timer(self):
         """Stop the prediction timer."""
         self.prediction_timer.stop()
+
+    def get_prediction_data(self):
+
+        inference_sample = self.board.get_current_board_data(self.prediction_datapoints)
+        self.filter_data_buffer(inference_sample)
+        logging.debug(f"Inference length: {self.inference_ms} Prediction datapoints {self.prediction_datapoints}")
 
     def _predict_class(self, data):
         """Internal method to predict the class of the data."""
@@ -459,9 +486,9 @@ class Streamer:
     def predict_class(self):
         """Predict the class of the data."""
         try:
-            data = self.board.get_current_board_data(self.prediction_datapoints)
-            self.filter_data_buffer(data)
-            self.executor.submit(self._predict_class, data)
+            inference_sample = self.board.get_current_board_data(self.prediction_datapoints)
+            self.filter_data_buffer(inference_sample)
+            self.executor.submit(self._predict_class, inference_sample)
         except Exception as e:
             logging.error(f"Error starting prediction task: {e}")
 

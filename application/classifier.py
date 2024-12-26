@@ -45,10 +45,9 @@ class Classifier:
         self.fs = BoardShim.get_sampling_rate(self.board_id)
         self.chs = layouts[self.board_id]["channels"]
         self.epoch_start = -0.1
-        self.epoch_end = 0.7
-        self.cv_splits = 5
-        self.seg_start = 50
-        self.seg_end = 150
+        self.epoch_end = 0.5
+        self.cv_splits = 10
+        self.training_class = 1
         self.baseline = (self.epoch_start, 0)
         self.scaler = None
         self.train_X = None
@@ -77,16 +76,16 @@ class Classifier:
         self.prep_X = X
         self.prep_Y = y
 
-        X_train, X_eval, y_train, y_eval = train_test_split(X, y, test_size=0.2, random_state=random_state)
+        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.1, random_state=random_state)
 
         if oversample:
             X_train, y_train = oversampler.fit_resample(X_train, y_train)
 
         X_train = scaler.fit_transform(X_train)
         self.scaler = scaler
-        self.cross_validate(X_train, y_train, n_splits=self.cv_splits)
+        self.cross_validate(X, y, n_splits=self.cv_splits)
         self.model.fit(X_train, y_train)
-        self.evaluate(X_eval, y_eval)
+        self.evaluate(X_test, y_test)
 
     def cross_validate(self, X, y, n_splits=5):
         """
@@ -157,11 +156,11 @@ class Classifier:
             events = np.array(trial_events)
             logging.info(f'Found matching events sequence: {np.array(trial_events)}')
 
-        events[:, 2][events[:, 2] != 1] = 3
-        logging.info(f"Events: {events.shape} {np.array(events[:, 2])}")
+        events[:, 2][events[:, 2] != self.training_class] = 3
+        logging.info(f"Labels: {events.shape} {np.array(events[:, 2])}")
 
 
-        eps = Epochs(raw, events, event_id={'T': 1, 'NT': 3}, tmin=-.1, tmax=0.9, baseline=(-.1, 0.0), preload=True)
+        eps = Epochs(raw, events, event_id={'T': 1, 'NT': 3}, tmin=self.epoch_start, tmax=self.epoch_end, baseline=(-.1, 0.0), preload=True)
 
         preprocessed = eps.get_data(picks='eeg')#[:, :, self.seg_start:self.seg_end]
         labels = eps.events[:, -1]
@@ -221,16 +220,16 @@ class Classifier:
                 output[str(seq[idx])] = y[idx]
         return output
 
-    def plot_roc_curve(self, n_splits=5):
+    def plot_roc_curve(self):
         """ Plot the cross-validated ROC curve for the model"""
         plt.close()
-        plot_cross_validated_roc_curve(clf=self.model, X=self.prep_X, y=self.prep_Y, pos_label=0, n_splits=n_splits,
+        plot_cross_validated_roc_curve(clf=self.model, X=self.prep_X, y=self.prep_Y, pos_label=0, n_splits=self.cv_splits,
                                        random_state=random_state)
 
-    def plot_confusion_matrix(self, n_splits=5):
+    def plot_confusion_matrix(self):
         """ Plot the cross-validated confusion matrix for the model"""
         plt.close()
-        cv = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=random_state)
+        cv = StratifiedKFold(n_splits=self.cv_splits, shuffle=True, random_state=random_state)
         plot_cross_validated_confusion_matrix(X=self.prep_X, y=self.prep_Y, clf=self.model, cv=cv, normalize=True)
 
     def set_prediction_mode(self, mode=False):
