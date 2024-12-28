@@ -25,16 +25,9 @@ class LSLStreamThread(QThread):
         streams = []
 
         # Create a new inlet to read from the stream, check until a stream is found
-        while not streams:
-            logging.info("Looking for an LSL stream...")
-            try:
-                streams = resolve_stream("type", "Markers")
-            except Exception as e:
-                logging.error(f"Error while resolving LSL stream: {e}")
 
-        logging.info("LSL stream found: {}".format(streams[0].name()))
-        inlet = StreamInlet(streams[0],
-                            processing_flags=pylsl.proc_clocksync | pylsl.proc_dejitter | pylsl.proc_threadsafe)
+        logging.info("Looking for LSL stream...")
+        inlet = connect_lsl_marker_stream('CortexMarkers')
 
         while True:
             try:
@@ -66,17 +59,33 @@ class LSLStreamThread(QThread):
                     logging.info(f"Stop inference trigger {marker[0]} written at {date_time}")
                 else:
                     # Emit the new sample data
-                    logging.debug(f"New sample: {marker[0]} after {delta_ts}")
+                    delta_ts_ms = delta_ts * 1000
+                    logging.debug(f"New sample: {marker[0]} after {delta_ts_ms} ms")
                     self.new_sample.emit(marker[0], timestamp)
             except Exception as e:
                 logging.error(f"Error while reading LSL stream: {e}")
-                streams = resolve_stream('type', 'Markers')
-                logging.info("LSL stream found: {}".format(streams[0].name()))
-                inlet = StreamInlet(streams[0],
-                                    processing_flags=pylsl.proc_clocksync | pylsl.proc_dejitter | pylsl.proc_threadsafe)
+                logging.info("Looking for LSL stream...")
+                inlet = connect_lsl_marker_stream('CortexMarkers')
 
 
-def start_lsl_eeg_stream(channels, fs, source_id, stream_name='Cortex EEG', type='EEG'):
+def connect_lsl_marker_stream(stream_name='CortexMarkers', type='Markers'):
+    """
+    Connect to an LSL stream
+    :param source_id: str, source id
+    :param stream_name: str, name of the LSL stream
+    :param type: str, type of the LSL stream
+    :return: StreamInlet object
+    """
+    try:
+        streams = resolve_stream('name', stream_name)
+        inlet = StreamInlet(streams[0], processing_flags=pylsl.proc_clocksync | pylsl.proc_dejitter | pylsl.proc_threadsafe)
+        logging.info(f"LSL stream connected {streams[0].name()}")
+        return inlet
+    except Exception as e:
+        logging.error(f"Error connecting to LSL stream: {e}")
+
+
+def start_lsl_eeg_stream(channels, fs, source_id, stream_name='CortexEEG', type='EEG'):
     """
     Start an LSL stream for the EEG data
 
@@ -104,7 +113,7 @@ def start_lsl_eeg_stream(channels, fs, source_id, stream_name='Cortex EEG', type
         logging.error(f"Error starting LSL stream: {e}")
 
 
-def start_lsl_power_bands_stream(channels, fs, source_id, stream_name='Cortex PSD', type='PSD'):
+def start_lsl_power_bands_stream(channels, fs, source_id, stream_name='CortexPSD', type='PSD'):
     """
     Start an LSL stream for the power bands data
     :param channels: list of str, channel names
@@ -130,7 +139,7 @@ def start_lsl_power_bands_stream(channels, fs, source_id, stream_name='Cortex PS
         logging.error(f"Error starting LSL stream: {e}")
 
 
-def start_lsl_prediction_stream(fs, source_id, stream_name='Cortex Inference', type='Markers'):
+def start_lsl_inference_stream(channels, fs, source_id, stream_name='CortexInference', type='Inference'):
     """
     Start an LSL stream for the prediction data
     :param fs: int, sampling rate
@@ -140,8 +149,8 @@ def start_lsl_prediction_stream(fs, source_id, stream_name='Cortex Inference', t
     :return: StreamOutlet object
     """
     try:
-        info = pylsl.StreamInfo(name=stream_name, type=type, channel_count=1,
-                                nominal_srate=fs, channel_format='string',
+        info = pylsl.StreamInfo(name=stream_name, type=type, channel_count=channels,
+                                nominal_srate=fs, channel_format='float32',
                                 source_id=source_id)
         prediction_outlet = pylsl.StreamOutlet(info)
         logging.debug(f"LSL prediction stream started {info.name()}")
@@ -150,7 +159,7 @@ def start_lsl_prediction_stream(fs, source_id, stream_name='Cortex Inference', t
         logging.error(f"Error starting LSL stream: {e}")
 
 
-def start_lsl_quality_stream(channels, fs, source_id, stream_name='Cortex Qualities', type='Qualities'):
+def start_lsl_quality_stream(channels, fs, source_id, stream_name='CortexQuality', type='Qualities'):
     """ Start an LSL stream for the quality dat
     :param channels: list of str, channel names
     :param fs: int, sampling rate
@@ -220,7 +229,7 @@ def push_lsl_band_powers(outlet: StreamOutlet, band_powers, timestamp):
         logging.error(f"Error pushing band powers to LSL: {e}")
 
 
-def push_lsl_prediction(outlet: StreamOutlet, prediction):
+def push_lsl_inference(outlet: StreamOutlet, prediction):
     """
     Push a prediction to the LSL stream
     :param outlet: StreamOutlet object
@@ -228,8 +237,13 @@ def push_lsl_prediction(outlet: StreamOutlet, prediction):
     """
     try:
         # Serialize the dictionary to a JSON string
-        prediction_json = json.dumps(prediction, default=convert_to_serializable)
-        outlet.push_sample([prediction_json])
+        #prediction_json = json.dumps(prediction, default=convert_to_serializable)
+        #outlet.push_sample([prediction_json])
+
+        # convert the dictionary to a list
+        predicted_class = prediction['class']
+        outlet.push_sample([predicted_class])
+
         logging.debug(f"Pushed prediction {prediction} to LSL stream {outlet.get_info().name()} ")
     except Exception as e:
         logging.error(f"Error pushing prediction to LSL: {e}")
