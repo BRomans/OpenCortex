@@ -1,12 +1,12 @@
 plot: true
 save_data: true
-model: SVM
+model: RF
 nclasses: 5
 proba: true
 group_predictions: true
 flash_time: 150
-oversample: false
-epoch_length_ms: 500
+oversample: true
+epoch_length_ms: 700
 baseline_ms : 100
 quality_thresholds:
   - [-100, -50, 'yellow', 0.5]
@@ -14,3 +14,7 @@ quality_thresholds:
   - [50, 100, 'yellow', 0.5]
 update_speed_ms: 1000
 update_plot_speed_ms: 100
+start_training_marker: 98
+end_training_marker: 99
+start_inference_marker: 100
+end_inference_marker: 101

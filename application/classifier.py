@@ -14,8 +14,7 @@ from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
 from matplotlib import pyplot as plt
 from utils.layouts import layouts
 from utils.loader import convert_to_mne
-from processing.preprocessing import make_overlapping_epochs
-from validation.plotting import plot_cross_validated_roc_curve, plot_cross_validated_confusion_matrix, normalize
+from validation.cross_val import plot_cross_validated_roc_curve, plot_cross_validated_confusion_matrix, normalize
 
 # turn off MNE logging
 mne.utils.set_log_level('ERROR')
@@ -45,7 +44,7 @@ class Classifier:
         self.fs = BoardShim.get_sampling_rate(self.board_id)
         self.chs = layouts[self.board_id]["channels"]
         self.epoch_start = -0.1
-        self.epoch_end = 0.5
+        self.epoch_end = 0.7
         self.cv_splits = 10
         self.training_class = 1
         self.baseline = (self.epoch_start, 0)
@@ -71,7 +70,7 @@ class Classifier:
         le = LabelEncoder()
         X = prep_data.reshape(prep_data.shape[0], -1)
         y = le.fit_transform(labels)
-        logging.info(f"Encoded labels: {y}")
+        logging.debug(f"Encoded labels: {y}")
 
         self.prep_X = X
         self.prep_Y = y
@@ -81,6 +80,7 @@ class Classifier:
         if oversample:
             X_train, y_train = oversampler.fit_resample(X_train, y_train)
 
+        logging.info(f"Training data shape: {X_train.shape} {y_train.shape}")
         X_train = scaler.fit_transform(X_train)
         self.scaler = scaler
         self.cross_validate(X, y, n_splits=self.cv_splits)
@@ -132,12 +132,12 @@ class Classifier:
 
         # drop events bigger than 90
         events = events[events[:, 2] < 90]
-        logging.info(f"Found events: {events.shape} {np.array(events[:, 2])}")
+        logging.debug(f"Found events: {events.shape} {np.array(events[:, 2])}")
 
         if self.mode == 'train':
             self.sequence = np.unique(events[:, 2])
         elif self.mode == 'predict':
-            logging.info(f"Using sequence {self.sequence}")
+            logging.debug(f"Using sequence {self.sequence}")
             trial_events = []
             # Find iteratively the same sequence of consecutive values in the events
             j = 0
@@ -157,7 +157,7 @@ class Classifier:
             logging.info(f'Found matching events sequence: {np.array(trial_events)}')
 
         events[:, 2][events[:, 2] != self.training_class] = 3
-        logging.info(f"Labels: {events.shape} {np.array(events[:, 2])}")
+        logging.debug(f"Labels: {events.shape} {np.array(events[:, 2])}")
 
 
         eps = Epochs(raw, events, event_id={'T': 1, 'NT': 3}, tmin=self.epoch_start, tmax=self.epoch_end, baseline=(-.1, 0.0), preload=True)
@@ -209,7 +209,7 @@ class Classifier:
         if proba:
             y_1 = y[:, 1]
             y_1 = normalize(y_1, method='softmax')
-            y_1 = np.round(y_1, 2)
+            y_1 = np.round(y_1, 4)
             # Determine the class with the highest probability in y_1
             output = {'class': np.argmax(y_1) + 1}  # Adding 1 to match 1-indexed classes
             for idx, prediction in enumerate(seq):
@@ -232,7 +232,7 @@ class Classifier:
         cv = StratifiedKFold(n_splits=self.cv_splits, shuffle=True, random_state=random_state)
         plot_cross_validated_confusion_matrix(X=self.prep_X, y=self.prep_Y, clf=self.model, cv=cv, normalize=True)
 
-    def set_prediction_mode(self, mode=False):
+    def set_inference_mode(self, mode=False):
         if mode:
             self.mode = 'predict'
         else:

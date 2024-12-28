@@ -8,7 +8,7 @@ import yaml
 from PyQt5 import QtWidgets, QtCore
 from application.classifier import Classifier
 from application.lsl.lsl_stream import LSLStreamThread, start_lsl_eeg_stream, start_lsl_power_bands_stream, \
-    start_lsl_prediction_stream, start_lsl_quality_stream, push_lsl_raw_eeg, push_lsl_band_powers, push_lsl_prediction, \
+    start_lsl_inference_stream, start_lsl_quality_stream, push_lsl_raw_eeg, push_lsl_band_powers, push_lsl_inference, \
     push_lsl_quality
 from utils.layouts import layouts
 from pyqtgraph import ScatterPlotItem, mkBrush
@@ -73,7 +73,7 @@ class Streamer:
         self.classifier = None
         self.executor = ThreadPoolExecutor(max_workers=5)
         if self.model is not None:
-            self.over_sample = config.get('oversample', False)
+            self.over_sample = config.get('oversample', True)
             self.classifier_thread = threading.Thread(target=self.init_classifier)
             self.classifier_thread.start()
 
@@ -83,7 +83,7 @@ class Streamer:
         self.off_time = (self.flash_time * (self.nclasses - 1))
         logging.debug(f"Off time: {self.off_time} ms")
         self.prediction_interval = int(
-            2*self.flash_time + self.off_time)  # * 3  # we take double the time, so we can loop on it
+            2 * self.flash_time + self.off_time)  # * 3  # we take double the time, so we can loop on it
         logging.info(f"Prediction interval: {self.prediction_interval} ms")
         self.epoch_data_points = int(self.epoch_length_ms * self.sampling_rate / 1000)
 
@@ -132,8 +132,9 @@ class Streamer:
         # Initialize LSL streams
         self.eeg_outlet = start_lsl_eeg_stream(channels=BoardShim.get_eeg_names(self.board_id), fs=self.sampling_rate,
                                                source_id=self.board.get_device_name(self.board_id))
-        self.prediction_outlet = start_lsl_prediction_stream(fs=self.sampling_rate,
-                                                             source_id=self.board.get_device_name(self.board_id))
+        self.inference_outlet = start_lsl_inference_stream(channels=1,
+                                                           fs=self.sampling_rate,
+                                                           source_id=self.board.get_device_name(self.board_id))
         self.band_powers_outlet = start_lsl_power_bands_stream(channels=BoardShim.get_eeg_names(self.board_id),
                                                                fs=self.sampling_rate,
                                                                source_id=self.board.get_device_name(self.board_id))
@@ -423,18 +424,16 @@ class Streamer:
         self.board.insert_marker(int(trigger))
         if self.inference_mode:
 
-
             # TODO figure out the criterion for the slicing trigger
             if self.nclasses < 10:
-                slicing_trigger = self.nclasses # add two to ensure the whole event time is covered
+                slicing_trigger = self.nclasses  # add two to ensure the whole event time is covered
             elif self.nclasses >= 10:
                 if self.nclasses % 2 == 0:
-                    slicing_trigger = (self.nclasses // 2) + 1 # add one to ensure the whole event time is covered
+                    slicing_trigger = (self.nclasses // 2) + 1  # add one to ensure the whole event time is covered
                 else:
-                    slicing_trigger = (self.nclasses // 2) + 2 # add two to ensure the whole event time is covered
+                    slicing_trigger = (self.nclasses // 2) + 2  # add two to ensure the whole event time is covered
 
-            slicing_trigger = self.slicing_trigger # Stick with basic formula
-
+            slicing_trigger = self.slicing_trigger  # Stick with basic formula
 
             if int(trigger) == slicing_trigger and not self.first_prediction:  # half way trial
                 self.predict_class()
@@ -478,7 +477,7 @@ class Streamer:
         """Internal method to predict the class of the data."""
         try:
             output = self.classifier.predict(data, proba=self.proba, group=self.group_predictions)
-            push_lsl_prediction(self.prediction_outlet, output)
+            push_lsl_inference(self.inference_outlet, output)
             logging.info(f"Predicted class: {output}")
         except Exception as e:
             logging.error(f"Error predicting class: {e}")
