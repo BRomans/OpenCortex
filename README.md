@@ -101,8 +101,18 @@ can run the notebooks using Jupyter, Jupyter Lab or Google Colab.
 ## Building
 This project can be built as pip package using the following commands
 
+### Source Distribution
+If you want to build a source distribution, run the following command:
+```bash
+python setup.py sdist
+```
+Copy the content of the `dist` folder to the desired location and install the package using pip:
+```bash
+pip install <package_name>.tar.gz
+```
+
 ### Wheel Distribution
-To build a wheel distribution, run the following command:
+Afterwards, to build a wheel distribution, run the following command:
 ```bash
 python setup.py sdist bdist_wheel
 ```
@@ -111,15 +121,7 @@ Copy the content of the `dist` folder to the desired location and install the pa
 pip install <package_name>.whl
 ``` 
 
-### Source Distribution
-Alternatively, you if you want to build a source distribution, run the following command:
-```bash
-python setup.py sdist
-```
-Copy the content of the `dist` folder to the desired location and install the package using pip:
-```bash
-pip install <package_name>.tar.gz
-```
+
 
 
 
