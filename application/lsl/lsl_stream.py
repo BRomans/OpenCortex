@@ -1,3 +1,12 @@
+"""
+This class handles the LSL stream thread to read from an LSL stream and emit new sample data.
+The LSL stream is used to send the EEG data, the power bands, the prediction, and the quality indicators.
+
+Author: Michele Romani
+Email: michele.romani.zaltieri@gmail.com
+Copyright 2024 Michele Romani
+"""
+
 import json
 import logging
 import time
@@ -22,10 +31,6 @@ class LSLStreamThread(QThread):
 
     def run(self):
         """ Run the LSL stream thread."""
-        streams = []
-
-        # Create a new inlet to read from the stream, check until a stream is found
-
         logging.info("Looking for LSL stream...")
         inlet = connect_lsl_marker_stream('CortexMarkers')
 
@@ -67,7 +72,6 @@ class LSLStreamThread(QThread):
                 logging.info("Looking for LSL stream...")
                 inlet = connect_lsl_marker_stream('CortexMarkers')
 
-
 def connect_lsl_marker_stream(stream_name='CortexMarkers', type='Markers'):
     """
     Connect to an LSL stream
@@ -104,8 +108,12 @@ def start_lsl_eeg_stream(channels, fs, source_id, stream_name='CortexEEG', type=
         # Add channel names
         chs = info.desc().append_child("channels")
         for ch in channels:
-            chs.append_child("channel").append_child_value("name", ch)
+            channel = chs.append_child("channel")
+            channel.append_child_value("name", ch)
+            channel.append_child_value("type", "EEG")
+            channel.append_child_value("unit", "microvolts")
         chs.append_child("channel").append_child_value("name", "Trigger")
+
         eeg_outlet = StreamOutlet(info)
         logging.debug(f"LSL EEG stream started {info.name()}")
         return eeg_outlet

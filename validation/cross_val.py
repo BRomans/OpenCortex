@@ -1,3 +1,12 @@
+"""
+This package contains functions to plot the feature vector, the data distribution, the confusion matrix, and the ROC curve.
+
+Author: Michele Romani
+Email: michele.romani.zaltieri@gmail.com
+Copyright 2024 Michele Romani
+"""
+
+
 import seaborn as sns
 import matplotlib.pyplot as plt
 import numpy as np
@@ -27,7 +36,7 @@ def normalize(y, method='z-score'):
         return 1 - y
 
 
-def plot_feature_vector(x, x_flat, seg_len=200, epoch=1):
+def plot_feature_vector(x, x_flat, seg_len=200, epoch=1, xlim=(0, 1000)):
     """
     Plot the feature vector and the original signal
     :param seg_len: length of the segment
@@ -41,7 +50,7 @@ def plot_feature_vector(x, x_flat, seg_len=200, epoch=1):
         plt.plot(offset, x[epoch, i], label='Channel ' + str(i + 1), color=feat_colors[i])
     plt.plot(x_flat[epoch, :], label='Feature Vector', color='green', linestyle='dotted', linewidth=2)
     plt.legend(loc='upper right')
-    plt.xlim(0, 1000)
+    plt.xlim(xlim)
     plt.xlabel('Time (ms)')
     plt.ylabel('Amplitude (uV)')
     plt.show()

@@ -1,3 +1,11 @@
+"""
+This class creates a dialog to select the EEG device and the window size for the data acquisition.
+
+Author: Michele Romani
+Email: michele.romani.zaltieri@gmail.com
+Copyright 2024 Michele Romani
+"""
+
 from PyQt5 import QtWidgets, QtCore, QtGui
 import re
 import bluetooth

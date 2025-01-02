@@ -1,3 +1,11 @@
+"""
+This class is a wrapper for Scikit-learn classifiers. It provides methods to train, evaluate, and predict the model.
+
+Author: Michele Romani
+Email: michele.romani.zaltieri@gmail.com
+Copyright 2024 Michele Romani
+"""
+
 import logging
 import mne.utils
 import numpy as np

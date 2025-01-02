@@ -1,3 +1,12 @@
+"""
+This class creates a GUI to plot and handle LSL events.
+Filters can be applied to the data and the user can send triggers and save the data to a .CSV file.
+
+Author: Michele Romani
+Email: michele.romani.zaltieri@gmail.com
+Copyright 2024 Michele Romani
+"""
+
 import threading
 import time
 import numpy as np
@@ -49,7 +58,7 @@ class Streamer:
         self.baseline_ms = config.get('baseline_ms', 100)
         self.quality_thresholds = config.get('quality_thresholds', [(-100, -50, 'yellow', 0.5), (-50, 50, 'green', 1.0),
                                                                     (50, 100, 'yellow', 0.5)])
-        self.update_speed_ms = config.get('update_speed_ms', 1000 * self.window_size)
+        self.update_buffer_speed_ms = config.get('update_buffer_speed_ms', 1000)
         self.update_plot_speed_ms = config.get('update_plot_speed_ms', 1000 / self.window_size)
 
         time.sleep(self.window_size)  # Wait for the board to be ready
@@ -123,7 +132,7 @@ class Streamer:
         # Start the PyQt event loop to fetch the raw data
         self.timer = QtCore.QTimer()
         self.timer.timeout.connect(self.update_data_buffer)
-        self.timer.start(self.update_speed_ms)
+        self.timer.start(self.update_buffer_speed_ms)
 
         self.plot_timer = QtCore.QTimer()
         self.plot_timer.timeout.connect(self.update_plot)
@@ -267,7 +276,7 @@ class Streamer:
         self.classifier.set_inference_mode(self.inference_mode)
 
     def update_data_buffer(self):
-        """ Update the plot with new data"""
+        """ Update the out stream buffer with new data"""
         if self.is_streaming:
             if self.window_size == 0:
                 raise ValueError("Window size cannot be zero")
@@ -289,9 +298,10 @@ class Streamer:
             band_powers = extract_band_powers(data=self.filtered_eeg[0:len(self.eeg_channels)], fs=self.sampling_rate,
                                               bands=freq_bands, ch_names=self.eeg_channels)
             self.app.processEvents()
+            band_powers_array = band_powers.to_numpy()
             push_lsl_raw_eeg(self.eeg_outlet, self.filtered_eeg, start_eeg, end_eeg, self.chunk_counter, ts,
                              self.lsl_chunk_checkbox.isChecked())
-            push_lsl_band_powers(self.band_powers_outlet, band_powers.to_numpy(), ts)
+            push_lsl_band_powers(self.band_powers_outlet, band_powers_array, ts)
 
     def init_plot(self):
         """Initialize the timeseries plot for the EEG channels and trigger channel."""
@@ -304,7 +314,7 @@ class Streamer:
         self.eeg_plot.setMenuEnabled('left', True)
         self.eeg_plot.showAxis('bottom', True)
         self.eeg_plot.setMenuEnabled('bottom', True)
-        #self.eeg_plot.setMinimumWidth(800)  # Set a large minimum width
+        self.eeg_plot.showGrid(x=True, y=True)
         self.eeg_plot.setLabel('bottom', text='Time (s)')
         self.eeg_plot.getAxis('bottom').setTicks([[(i, str(i / self.sampling_rate)) for i in
                                                    range(0, self.num_points, int(self.sampling_rate / 2))] + [

@@ -7,7 +7,7 @@ from mne.channels import make_standard_montage
 from utils.layouts import layouts
 
 
-def load_data(path, header=None, fs=250, board=None,  skiprows=5, delimiter=','):
+def load_data(path, header=None, fs=250, board=None, skiprows=5, delimiter=','):
     if board is None:
         df = pd.read_csv(path, skiprows=skiprows * fs, delimiter=delimiter)
         eeg = df.iloc[:, 0:-1].to_numpy()
@@ -21,6 +21,36 @@ def load_data(path, header=None, fs=250, board=None,  skiprows=5, delimiter=',')
     trigger = np.array(df.Trigger) if header != "unity" else np.array(df.id)
 
     return eeg, trigger, df
+
+
+def load_erp_data(filepath, board_id, fs, chs, header, skiprows=5, delimiter='\t', start_id=98, end_id=99, training_length=60,
+                  training=True):
+    print(f'Board: {board_id}, fs: {fs}, channels: {chs}')
+
+    eeg, trigger, dataframe = load_data(filepath, board=board_id,
+                                        header=header, fs=fs, skiprows=skiprows, delimiter=delimiter)
+    # infer n_classes from the trigger values but exclude start_id and end_id
+    n_classes = len(np.unique(trigger[np.where((trigger < 90) & (trigger > 0))]))
+    print(f'Found {n_classes} classes in the data')
+    print(f'Unique trigger values: {np.unique(trigger[np.where((trigger < 90) & (trigger > 0))])}')
+
+    # Check if train start and end triggers are present in the data
+    if start_id not in trigger or end_id not in trigger:
+        end_trigger = np.where(trigger == n_classes)[0][training_length - 1] if training else \
+            np.where(trigger == n_classes)[0][-1]
+    else:
+        end_trigger = np.where(trigger == end_id)[0][0]
+
+    first_trigger = np.where(trigger == start_id)[0][0] if len(np.where(trigger == end_id)[0]) > 0 else 0
+    print(" Start index: " + str(first_trigger) + " End index: " + str(end_trigger))
+
+    # Extract ERP data
+    t_eeg = eeg[first_trigger:end_trigger + fs]
+    t_trigger = trigger[first_trigger:end_trigger + fs]
+
+    print("Loaded data with shape:" + str(t_eeg.shape) + " and trigger shape: " + str(t_trigger.shape))
+    print("That means we have " + str(t_eeg.shape[0]) + " samples and " + str(t_eeg.shape[1]) + " channels.")
+    return t_eeg, t_trigger
 
 
 def convert_to_mne(eeg, trigger, fs, chs, rescale=1e6, recompute=False, transpose=True):
