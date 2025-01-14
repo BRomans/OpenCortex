@@ -118,13 +118,13 @@ class Streamer:
         self.win = pg.GraphicsLayoutWidget(title='Cortex Streamer', size=(1200, 800))
         self.win.setWindowTitle('Cortex Streamer')
         self.win.show()
-        panel = self.create_buttons()
+        panel = self.create_parameters_panel()
         plot = self.init_plot()
 
         # Create a layout for the main window
         self.main_layout = QtWidgets.QGridLayout()
         self.main_layout.addWidget(plot, 0, 0)
-        self.main_layout.addWidget(panel, 1, 0)
+        self.main_layout.addWidget(panel, 0, 1, alignment=QtCore.Qt.AlignBottom)
 
         # Set the main layout for the window
         self.win.setLayout(self.main_layout)
@@ -153,7 +153,7 @@ class Streamer:
 
         self.app.exec_()
 
-    def create_buttons(self):
+    def create_parameters_panel(self):
         """Create buttons to interact with the streamer"""
 
         # Button to write trigger and input box to specify the trigger value
@@ -167,7 +167,7 @@ class Streamer:
         self.trigger_button.clicked.connect(lambda: self.write_trigger(int(self.input_box.text())))
 
         # Start / Stop buttons
-        self.start_button = QtWidgets.QPushButton('Stop')
+        self.start_button = QtWidgets.QPushButton('Stop Stream')
         self.start_button.setFixedWidth(100)
         self.start_button.clicked.connect(lambda: self.toggle_stream())
 
@@ -181,12 +181,12 @@ class Streamer:
         self.confusion_button.clicked.connect(lambda: self.classifier.plot_confusion_matrix())
 
         # Save data checkbox
-        self.save_data_checkbox = QtWidgets.QCheckBox('Save data to file')
+        self.save_data_checkbox = QtWidgets.QCheckBox('Save to CSV')
         self.save_data_checkbox.setStyleSheet('color: white')
         self.save_data_checkbox.setChecked(self.save_data)
 
         # Input box to configure Bandpass filter with checkbox to enable/disable it
-        self.bandpass_checkbox = QtWidgets.QCheckBox('Bandpass filter frequencies (Hz)')
+        self.bandpass_checkbox = QtWidgets.QCheckBox('Bandpass (Hz)')
         self.bandpass_checkbox.setStyleSheet('color: white')
         self.bandpass_box_low = QtWidgets.QLineEdit()
         self.bandpass_box_low.setPlaceholderText('0')
@@ -198,7 +198,7 @@ class Streamer:
         self.bandpass_box_high.setMaximumWidth(30)
 
         # Input box to configure Notch filter with checkbox to enable/disable it and white label
-        self.notch_checkbox = QtWidgets.QCheckBox('Notch filter frequencies (Hz)')
+        self.notch_checkbox = QtWidgets.QCheckBox('Notch (Hz)')
         self.notch_checkbox.setStyleSheet('color: white')
         self.notch_box = QtWidgets.QLineEdit()
         self.notch_box.setMaximumWidth(60)  # Set a fixed width for the input box
@@ -210,7 +210,7 @@ class Streamer:
         self.lsl_chunk_checkbox.setChecked(True)
 
         # Create a layout for buttons
-        start_save_layout = QtWidgets.QHBoxLayout()
+        start_save_layout = QtWidgets.QVBoxLayout()
         start_save_layout.addWidget(self.save_data_checkbox)
         start_save_layout.addWidget(self.start_button)
 
@@ -226,49 +226,52 @@ class Streamer:
         notch_layout.addWidget(self.notch_box)
 
         # Create a layout for LSL options
-        lsl_layout_label = QtWidgets.QLabel("LSL Options")
-        lsl_layout_label.setStyleSheet("color: white; font-size: 20px;")
-        lsl_layout = QtWidgets.QVBoxLayout()
-        lsl_layout.addWidget(lsl_layout_label)
-        lsl_layout.addWidget(self.lsl_chunk_checkbox)
+        eeg_options_label = QtWidgets.QLabel("EEG Options")
+        eeg_options_label.setStyleSheet("color: white; font-size: 20px;")
+        eeg_params_layout = QtWidgets.QVBoxLayout()
+        eeg_params_layout.addWidget(self.lsl_chunk_checkbox)
+        eeg_params_layout.addLayout(start_save_layout)
 
         # Create a vertical layout to contain the notch filter and the button layout
-        left_side_label = QtWidgets.QLabel("Filters")
-        left_side_label.setStyleSheet("color: white; font-size: 20px;")
-        left_side_layout = QtWidgets.QVBoxLayout()
-        left_side_layout.addWidget(left_side_label)
-        left_side_layout.addLayout(bandpass_layout)
-        left_side_layout.addLayout(notch_layout)
-        left_side_layout.addLayout(start_save_layout)
+        filters_label = QtWidgets.QLabel("Filters")
+        filters_label.setStyleSheet("color: white; font-size: 20px;")
+        filter_params_layout = QtWidgets.QVBoxLayout()
+        filter_params_layout.addLayout(bandpass_layout)
+        filter_params_layout.addLayout(notch_layout)
 
         # Create a center layout for trigger button
-        center_label = QtWidgets.QLabel("Markers")
-        center_label.setStyleSheet("color: white; size: 20px;")
-        center_layout = QtWidgets.QVBoxLayout()
-        center_layout.addWidget(center_label)
-        center_layout.addWidget(self.input_box)
-        center_layout.addWidget(self.trigger_button)
+        markers_label = QtWidgets.QLabel("Markers")
+        markers_label.setStyleSheet("color: white; size: 20px;")
+        markers_params_layout = QtWidgets.QVBoxLayout()
+        markers_params_layout.addWidget(self.input_box)
+        markers_params_layout.addWidget(self.trigger_button)
 
         # Create a layout for classifier plots
-        right_side_label = QtWidgets.QLabel("Classifier")
-        right_side_label.setStyleSheet("color: white; font-size: 20px;")
-        right_side_layout = QtWidgets.QVBoxLayout()
-        right_side_layout.addWidget(right_side_label)
-        right_side_layout.addWidget(self.roc_button)
-        right_side_layout.addWidget(self.confusion_button)
+        model_label = QtWidgets.QLabel("Classifier")
+        model_label.setStyleSheet("color: white; font-size: 20px;")
+        model_params_layout = QtWidgets.QHBoxLayout()
+        model_params_layout.addWidget(self.roc_button)
+        model_params_layout.addWidget(self.confusion_button)
 
         # Horizontal layout to contain the classifier buttons
-        horizontal_container = QtWidgets.QHBoxLayout()
-        horizontal_container.addLayout(lsl_layout)
-        horizontal_container.addLayout(left_side_layout)
-        horizontal_container.addLayout(center_layout)
-        horizontal_container.addLayout(right_side_layout)
+        vertical_container = QtWidgets.QVBoxLayout()
+        vertical_container.addWidget(eeg_options_label)
+        vertical_container.addLayout(eeg_params_layout)
+        vertical_container.addWidget(markers_label)
+        vertical_container.addLayout(markers_params_layout)
+        vertical_container.addWidget(filters_label)
+        vertical_container.addLayout(filter_params_layout)
+        vertical_container.addWidget(model_label)
+        vertical_container.addLayout(model_params_layout)
 
         # Create a widget to contain the layout
-        button_widget = QtWidgets.QWidget()
-        button_widget.setLayout(horizontal_container)
+        parameters = QtWidgets.QWidget()
+        parameters.setLayout(vertical_container)
+        parameters.setMaximumWidth(250)
+        parameters.setMaximumHeight(500)
+        parameters.setStyleSheet("background-color: #43485E; color: white;")
 
-        return button_widget
+        return parameters
 
     def set_inference_mode(self):
         """Set the BCI running status"""
@@ -589,11 +592,11 @@ class Streamer:
         """ Start or stop the streaming of data"""
         if self.is_streaming:
             self.board.stop_stream()
-            self.start_button.setText('Start')
+            self.start_button.setText('Start Stream')
             self.is_streaming = False
         else:
             self.board.start_stream()
-            self.start_button.setText('Stop')
+            self.start_button.setText('Stop Stream')
             self.is_streaming = True
 
     def quit(self):
