@@ -27,8 +27,10 @@ from concurrent.futures import ThreadPoolExecutor
 from processing.preprocessing import extract_band_powers
 from processing.proc_helper import freq_bands
 
-# 16 Color ascii codes for the 16 EEG channels
+# 16 Color ascii codes for the 16 EEG channels, afterwards just repeat
 colors = ["blue", "green", "yellow", "purple", "orange", "pink", "brown", "gray",
+          "cyan", "magenta", "lime", "teal", "lavender", "turquoise", "maroon", "olive",
+          "blue", "green", "yellow", "purple", "orange", "pink", "brown", "gray",
           "cyan", "magenta", "lime", "teal", "lavender", "turquoise", "maroon", "olive"]
 
 
