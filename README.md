@@ -138,7 +138,9 @@ This project is freely available to anyone and is not intended for commercial us
 purposes, please cite the original authors.
 
 ## License
-This project is licensed under the CC License - see the [LICENSE](LICENSE) file for details.
+This project is licensed under the GPLv3 License - see the [LICENSE](LICENSE) file for details.
+Packages used in this project are licensed under their respective licenses, as stated in the [Acknowledgments](#acknowledgments) 
+section.
 
 ## Authors
 - [Michele Romani](https://bromans.github.io/)
@@ -147,8 +149,8 @@ Please make sure to update the [AUTHORS](AUTHORS) file if you are contributing t
 
 
 ## Acknowledgments
-- [Brainflow](https://brainflow.readthedocs.io/en/stable/index.html)
-- [LabStreamingLayer](https://labstreaminglayer.org/)
-- [MNE](https://mne.tools/stable/index.html)
-- [Scikit-learn](https://scikit-learn.org/stable/)
+- [Brainflow](https://brainflow.readthedocs.io/en/stable/index.html), distributed under the MIT License.
+- [LabStreamingLayer](https://labstreaminglayer.org/) distributed under the MIT License.
+- [MNE](https://mne.tools/stable/index.html) distributed under the BSD 3-Clause License.
+- [Scikit-learn](https://scikit-learn.org/stable/) distributed under the BSD 3-Clause License.
 
