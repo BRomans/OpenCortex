@@ -169,9 +169,9 @@ class Streamer:
         self.trigger_button.clicked.connect(lambda: self.write_trigger(int(self.input_box.text())))
 
         # Start / Stop buttons
-        self.start_button = QtWidgets.QPushButton('Stop Stream')
+        self.start_button = QtWidgets.QPushButton('Stop Plot')
         self.start_button.setFixedWidth(100)
-        self.start_button.clicked.connect(lambda: self.toggle_stream())
+        self.start_button.clicked.connect(lambda: self.toggle_plot())
 
         # Buttons to plot ROC curve and confusion matrix
         self.roc_button = QtWidgets.QPushButton('Plot ROC')
@@ -282,9 +282,9 @@ class Streamer:
 
     def update_data_buffer(self):
         """ Update the out stream buffer with new data"""
-        if self.is_streaming:
-            if self.window_size == 0:
-                raise ValueError("Window size cannot be zero")
+        if self.window_size == 0:
+            raise ValueError("Window size cannot be zero")
+        try:
             data = self.board.get_current_board_data(num_samples=self.num_points)
             self.filter_data_buffer(data)
             start_eeg = layouts[self.board_id]["eeg_start"]
@@ -300,13 +300,20 @@ class Streamer:
             ts_channel = self.board.get_timestamp_channel(self.board_id)
             ts = data[ts_channel]
             self.filtered_eeg[-1] = trigger
+        except Exception as e:
+            logging.error(f"Error updating data buffer: {e}")
+            return
+
+        try:
             band_powers = extract_band_powers(data=self.filtered_eeg[0:len(self.eeg_channels)], fs=self.sampling_rate,
                                               bands=freq_bands, ch_names=self.eeg_channels)
-            self.app.processEvents()
             band_powers_array = band_powers.to_numpy()
             push_lsl_raw_eeg(self.eeg_outlet, self.filtered_eeg, start_eeg, end_eeg, self.chunk_counter, ts,
                              self.lsl_chunk_checkbox.isChecked())
             push_lsl_band_powers(self.band_powers_outlet, band_powers_array, ts)
+        except Exception as e:
+            logging.error(f"Error pushing data to LSL: {e}")
+        self.app.processEvents()
 
     def init_plot(self):
         """Initialize the timeseries plot for the EEG channels and trigger channel."""
@@ -369,11 +376,11 @@ class Streamer:
 
     def update_plot(self):
         """Update the plot with new data."""
-        filtered_eeg = np.zeros((len(self.eeg_channels) + 1, self.num_points))
         if self.is_streaming:
+            filtered_eeg = np.zeros((len(self.eeg_channels) + 1, self.num_points))
+            data = self.board.get_current_board_data(num_samples=self.num_points)
             if self.window_size == 0:
                 raise ValueError("Window size cannot be zero")
-            data = self.board.get_current_board_data(num_samples=self.num_points)
             self.filter_data_buffer(data)
             start_eeg = layouts[self.board_id]["eeg_start"]
             end_eeg = layouts[self.board_id]["eeg_end"]
@@ -594,12 +601,20 @@ class Streamer:
         """ Start or stop the streaming of data"""
         if self.is_streaming:
             self.board.stop_stream()
-            self.start_button.setText('Start Stream')
             self.is_streaming = False
         else:
             self.board.start_stream()
-            self.start_button.setText('Stop Stream')
             self.is_streaming = True
+
+    def toggle_plot(self):
+        """ Start or stop the streaming of data"""
+        if self.plot:
+            self.start_button.setText('Start Plotting')
+            self.plot = False
+        else:
+            self.start_button.setText('Stop Plotting')
+            self.plot = True
+
 
     def quit(self):
         """ Quit the application, join the threads and stop the streaming"""
