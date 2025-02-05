@@ -3,7 +3,7 @@ OpenCortex is a fully-featured EEG streamer that includes a classifier and a GUI
 Via the LabStreamingLayer (LSL) protocol, it can receive and send data to any compatible device or software and be used
 to build real-time neural applications (BCI, neurofeedback, etc.).
 
-![OpenCortex StreamerGUI](opencortex/img/interface.png)
+![OpenCortex StreamerGUI](https://github.com/BRomans/OpenCortex/blob/main/img/interface.png?raw=true)
 
 ## Features
 - GUI to plot EEG in real-time
