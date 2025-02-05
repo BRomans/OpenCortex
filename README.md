@@ -3,6 +3,8 @@ OpenCortex is a fully-featured EEG streamer that includes a classifier and a GUI
 Via the LabStreamingLayer (LSL) protocol, it can receive and send data to any compatible device or software and be used
 to build real-time neural applications (BCI, neurofeedback, etc.).
 
+![OpenCortex StreamerGUI](img/interface.png)
+
 ## Features
 - GUI to plot EEG in real-time
 - Signal real-time filtering (bandpass, notch) 
@@ -30,7 +32,7 @@ to build real-time neural applications (BCI, neurofeedback, etc.).
 - [License](#license)
 
 ## Supported Devices
-- Any EEG board listed on (Brainflow)[https://brainflow.readthedocs.io/en/stable/SupportedBoards.html]
+- Any EEG board listed on [Brainflow documentation](https://brainflow.readthedocs.io/en/stable/SupportedBoards.html)
 - (Coming Soon) Emotiv Epoc and other consumer EEG devices
 
 ## Getting Started
@@ -41,7 +43,7 @@ These instructions will help you get a copy of the project up and running on you
 
 List any software or dependencies that need to be installed before setting up the project.
 
-- Python 3.6 or higher
+- Python 3.8 or higher
 - [Microsoft C++ Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/)
 
 ```bash
@@ -53,8 +55,8 @@ sudo apt-get install python3
 ### Installation
 1. Clone the repository
 ```bash
-git clone https://github.com/BRomans/CortexToolkit.git
-cd CortexToolkit
+git clone https://github.com/BRomans/OpenCortex.git
+cd OpenCortex
 ```
 2. Create a virtual environment
 ```bash
@@ -88,7 +90,7 @@ python <example_name>.py
 ```
 To run the EEG Streamer app, use the following command:
 ```bash
-python main.py
+python opencortex/main.py
 ```
 
 ## Examples
