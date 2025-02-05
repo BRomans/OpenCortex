@@ -1,10 +1,7 @@
 plot: true
 save_data: true
-model: RF
-nclasses: 4
 proba: true
 group_predictions: true
-flash_time: 200
 oversample: true
 epoch_length_ms: 700
 baseline_ms : 100

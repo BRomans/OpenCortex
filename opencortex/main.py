@@ -52,13 +52,14 @@ def main():
         dialog = SetupDialog(devices)
         window_size = 0
         if dialog.exec_() == QtWidgets.QDialog.Accepted:
-            selected_device, window_size, log_level = dialog.get_data()
+            selected_device, window_size, log_level, config_file = dialog.get_data()
             logging.info(f"Selected Device: {selected_device}")
             logging.info(f"Window Size: {window_size} seconds")
             logging.info(f"Logging set to level: {log_level}")
             logging.getLogger().setLevel(logging_levels[log_level])
             args.serial_number = selected_device
             args.board_id = retrieve_board_id(args.serial_number)
+            args.config_file = config_file
     except BaseException as e:
         logging.info('Impossible to connect device', e)
         return
@@ -66,10 +67,12 @@ def main():
 
     params.serial_number = args.serial_number
     board_shim = BoardShim(args.board_id, params)
+    config_file = args.config_file
+    logging.info(f'Loaded config file: {config_file}')
     try:
         board_shim.prepare_session()
         board_shim.start_stream(streamer_params=args.streamer_params)
-        streamer = StreamerGUI(board_shim, params=params, window_size=window_size, config_file='config.yaml')
+        streamer = StreamerGUI(board_shim, params=params, window_size=window_size, config_file=config_file)
     except BaseException:
         logging.warning('Exception', exc_info=True)
     finally:

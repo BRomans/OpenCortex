@@ -55,6 +55,13 @@ class SetupDialog(QtWidgets.QDialog):
         layout.addWidget(QtWidgets.QLabel('Select device'))
         layout.addWidget(self.device_combo)
 
+        # Create a textbox to select configuration file
+        self.config_file = QtWidgets.QLineEdit(self)
+        layout.addWidget(QtWidgets.QLabel('Configuration file'))
+        layout.addWidget(self.config_file)
+        default_config_file = 'opencortex/default_config.yaml'
+        self.config_file.setText(default_config_file)
+
         # Create slider for window size
         self.window_size_slider = QtWidgets.QSlider(QtCore.Qt.Horizontal, self)
         self.window_size_slider.setMinimum(1)
@@ -91,9 +98,13 @@ class SetupDialog(QtWidgets.QDialog):
     def update_logging_level_label(self, value):
         self.logging_level_label.setText(f'Logging level: {log_labels[value]} ')
 
+    def update_config_file(self, value):
+        self.config_file.setText(value)
+
     def get_data(self):
         return (
             self.device_combo.currentText(),
             self.window_size_slider.value(),
             self.logging_level_slider.value(),
+            self.config_file.text()
         )

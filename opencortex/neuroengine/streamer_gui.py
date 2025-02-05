@@ -42,7 +42,7 @@ def write_header(file, board_id):
 
 class StreamerGUI:
 
-    def __init__(self, board, params, window_size=1, config_file='config.yaml'):
+    def __init__(self, board, params, window_size=1, config_file='default_config.yaml'):
         # Load configuration from file
         with open(config_file, 'r') as file:
             config = yaml.safe_load(file)

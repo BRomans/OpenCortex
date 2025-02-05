@@ -10,10 +10,10 @@ PyQt5-sip>=12.11.0
 pylsl==1.16.2
 pyqtgraph>=0.12.4
 seaborn==0.13.2
-scikit-learn==1.4.1.post1
-imblearn==0.0
+scikit-learn==1.5.0
+imblearn
 pyarrow
 pybluez2
 future==1.0.0
-setuptools==68.2.0
+setuptools==70.0.0
 PyYAML==6.0.1
