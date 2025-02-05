@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name="OpenCortex",
-    version="0.0.1",
+    version="0.1.3",
     author="Michele Romani",
     author_email="michele.romani.gzl0@gmail.com",
     description="Software to stream EEG data, perform preprocessing, and train machine learning models for BCI applications.",
