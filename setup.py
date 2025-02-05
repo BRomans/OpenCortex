@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name="OpenCortex",
-    version="0.1.4",
+    version="0.1.5",
     author="Michele Romani",
     author_email="michele.romani.gzl0@gmail.com",
     description="Software to stream EEG data, perform preprocessing, and train machine learning models to build real-time BCI applications.",
@@ -16,7 +16,7 @@ setup(
     packages=find_packages(exclude=["data", "images", "notebooks", "tests", "tools", "export", "examples"]),
     entry_points={
         "console_scripts": [
-            "opencortex=opencortex.__main__:run",
+            "opencortex=opencortex.__main__:run_cli",
         ],
     },
     python_requires=">=3.8",
