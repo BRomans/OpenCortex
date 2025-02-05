@@ -51,8 +51,26 @@ List any software or dependencies that need to be installed before setting up th
 # Python 3
 sudo apt-get install python3
 ```
+### Installation and Usage with pip
+You can install the package using command:
+```bash
+pip install opencortex
+```
 
-### Installation
+To run the OpenCortex Streamer:
+```bash
+python -m opencortex
+```
+or even just:
+```bash 
+opencortex
+```
+>[!Important]
+>The package is still in development, so it is recommended to install it in a virtual environment.
+
+
+### Local Installation
+If you want to install the package locally, for example to modify the source code, follow these steps:
 1. Clone the repository
 ```bash
 git clone https://github.com/BRomans/OpenCortex.git
@@ -73,7 +91,8 @@ venv\Scripts\activate      # On Windows
 pip install -r requirements.txt
 ```
 
-4. Issues
+4. Solve issues with PyBluez
+
 The base requirement for bluetooth scanning is `pybluez2`, which is a Python wrapper for the BlueZ Linux Bluetooth stack.
 There might be [issues](https://stackoverflow.com/questions/74196428/pip-install-pybluez2-package-directory-bluetooth-macos-does-not-exist) installing the package from pip, so it is recommended to install it from the source.
 ```bash
@@ -90,7 +109,7 @@ python <example_name>.py
 ```
 To run the EEG Streamer app, use the following command:
 ```bash
-python opencortex/main.py
+python opencortex/__main__.py
 ```
 
 ## Examples

@@ -4,14 +4,14 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "opencortex"
-version = "0.1.2"
+version = "0.1.4"
 authors = [
   { name="Michele Romani", email="michele.romani.gzl0@gmail.com" },
 ]
 description = "Software to stream EEG data, perform preprocessing, and train machine learning models to build real-time BCI applications."
 readme = "README.md"
 requires-python = ">=3.8"
-dynamic = ["dependencies"]
+dynamic = ["dependencies", "scripts"]
 
 classifiers = [
     "Programming Language :: Python :: 3",

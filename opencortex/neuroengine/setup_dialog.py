@@ -59,7 +59,7 @@ class SetupDialog(QtWidgets.QDialog):
         self.config_file = QtWidgets.QLineEdit(self)
         layout.addWidget(QtWidgets.QLabel('Configuration file'))
         layout.addWidget(self.config_file)
-        default_config_file = 'opencortex/default_config.yaml'
+        default_config_file = 'default_config.yaml'
         self.config_file.setText(default_config_file)
 
         # Create slider for window size

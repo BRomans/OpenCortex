@@ -15,8 +15,7 @@ import numpy as np
 from datetime import datetime
 from PyQt5.QtCore import QThread, pyqtSignal
 from pylsl import resolve_stream, StreamInlet, StreamOutlet
-from processing.proc_helper import freq_bands
-from utils.net_utils import convert_to_serializable
+from opencortex.processing.proc_helper import freq_bands
 
 
 class LSLStreamThread(QThread):
@@ -72,6 +71,7 @@ class LSLStreamThread(QThread):
                 logging.info("Looking for LSL stream...")
                 inlet = connect_lsl_marker_stream('CortexMarkers')
 
+
 def connect_lsl_marker_stream(stream_name='CortexMarkers', type='Markers'):
     """
     Connect to an LSL stream
@@ -82,7 +82,8 @@ def connect_lsl_marker_stream(stream_name='CortexMarkers', type='Markers'):
     """
     try:
         streams = resolve_stream('name', stream_name)
-        inlet = StreamInlet(streams[0], processing_flags=pylsl.proc_clocksync | pylsl.proc_dejitter | pylsl.proc_threadsafe)
+        inlet = StreamInlet(streams[0],
+                            processing_flags=pylsl.proc_clocksync | pylsl.proc_dejitter | pylsl.proc_threadsafe)
         logging.info(f"LSL stream connected {streams[0].name()}")
         return inlet
     except Exception as e:

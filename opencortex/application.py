@@ -1,15 +1,19 @@
+import os
 import argparse
 import logging
 from PyQt5 import QtWidgets
 from brainflow.board_shim import BoardShim, BrainFlowInputParams, BoardIds
-from neuroengine.setup_dialog import SetupDialog, retrieve_board_id, retrieve_eeg_devices
-from neuroengine.streamer_gui import StreamerGUI
+from opencortex.neuroengine.setup_dialog import SetupDialog, retrieve_board_id, retrieve_eeg_devices
+from opencortex.neuroengine.streamer_gui import StreamerGUI
 
 logging_levels = {0: logging.NOTSET, 1: logging.DEBUG, 2: logging.INFO, 3: logging.WARNING, 4: logging.ERROR,
                   5: logging.CRITICAL}
 
+base_dir = os.path.dirname(os.path.abspath(__file__))  # Gets the directory of the script
+config_path = os.path.join(base_dir, "default_config.yaml")
 
-def main():
+
+def run():
     BoardShim.enable_dev_board_logger()
     logging.basicConfig(level=logging.INFO)
 
@@ -68,7 +72,11 @@ def main():
     params.serial_number = args.serial_number
     board_shim = BoardShim(args.board_id, params)
     config_file = args.config_file
-    logging.info(f'Loaded config file: {config_file}')
+    if not os.path.exists(config_file):
+        logging.warning(f'Config file {config_file} does not exist, using default config')
+        config_file = config_path
+    else:
+        logging.info(f'Loaded config file: {config_file}')
     try:
         board_shim.prepare_session()
         board_shim.start_stream(streamer_params=args.streamer_params)
@@ -85,6 +93,3 @@ def main():
                 logging.warning('Streaming has already been stopped')
             board_shim.release_session()
 
-
-if __name__ == '__main__':
-    main()

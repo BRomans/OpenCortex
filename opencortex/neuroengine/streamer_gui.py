@@ -27,7 +27,6 @@ from opencortex.processing.preprocessing import extract_band_powers
 from opencortex.processing.proc_helper import freq_bands
 from opencortex.utils.layouts import layouts
 
-# 16 Color ascii codes for the 16 EEG channels, afterwards just repeat
 colors = ["blue", "green", "yellow", "purple", "orange", "pink", "brown", "gray",
           "cyan", "magenta", "lime", "teal", "lavender", "turquoise", "maroon", "olive",
           "blue", "green", "yellow", "purple", "orange", "pink", "brown", "gray",
