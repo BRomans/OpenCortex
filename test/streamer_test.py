@@ -31,7 +31,7 @@ if __name__ == "__main__":
 
     cmd = ""
     while cmd.lower() is not "q":
-        cmd = input("Enter T to simulate training, A to simulate application, Q to quit: ")
+        cmd = input("Enter T to simulate training, A to simulate neuroengine, Q to quit: ")
         if cmd.lower() == "t":
             simulate_lsl_client(start_cmd="98", end_cmd="99", nclasses=4, duration_s=5, interval_ms=250)
         elif cmd.lower() == "a":

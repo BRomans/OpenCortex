@@ -4,7 +4,7 @@ from brainflow import BoardIds
 from mne.io import RawArray
 from mne import create_info
 from mne.channels import make_standard_montage
-from utils.layouts import layouts
+from opencortex.utils.layouts import layouts
 
 
 def load_data(path, header=None, fs=250, board=None, skiprows=5, delimiter=','):
@@ -23,7 +23,7 @@ def load_data(path, header=None, fs=250, board=None, skiprows=5, delimiter=','):
     return eeg, trigger, df
 
 
-def load_erp_data(filepath, board_id, fs, chs, header, skiprows=5, delimiter='\t', start_id=98, end_id=99, training_length=60,
+def load_erp_data(filepath, board_id, fs, chs, header, skiprows=5, delimiter='\t', start_id=98, end_id=99, session_length=60,
                   training=True):
     print(f'Board: {board_id}, fs: {fs}, channels: {chs}')
 
@@ -36,7 +36,7 @@ def load_erp_data(filepath, board_id, fs, chs, header, skiprows=5, delimiter='\t
 
     # Check if train start and end triggers are present in the data
     if start_id not in trigger or end_id not in trigger:
-        end_trigger = np.where(trigger == n_classes)[0][training_length - 1] if training else \
+        end_trigger = np.where(trigger == n_classes)[0][session_length - 1] if training else \
             np.where(trigger == n_classes)[0][-1]
     else:
         end_trigger = np.where(trigger == end_id)[0][0]

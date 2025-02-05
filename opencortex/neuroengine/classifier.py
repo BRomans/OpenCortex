@@ -20,9 +20,9 @@ from sklearn.preprocessing import LabelEncoder, StandardScaler
 from sklearn.svm import SVC
 from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
 from matplotlib import pyplot as plt
-from utils.layouts import layouts
-from utils.loader import convert_to_mne
-from validation.cross_val import plot_cross_validated_roc_curve, plot_cross_validated_confusion_matrix, normalize
+from opencortex.utils.layouts import layouts
+from opencortex.utils.loader import convert_to_mne
+from opencortex.validation.cross_val import plot_cross_validated_roc_curve, plot_cross_validated_confusion_matrix, normalize
 
 # turn off MNE logging
 mne.utils.set_log_level('ERROR')

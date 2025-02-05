@@ -3,20 +3,20 @@ requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "CortexToolkit"
+name = "OpenCortex"
 version = "0.0.1"
 authors = [
   { name="Michele Romani", email="michele.romani.gzl0@gmail.com" },
 ]
-description = "Package to stream, collect and analyse EEG data"
+description = "Software to stream EEG data, perform preprocessing, and train machine learning models for BCI applications."
 readme = "README.md"
 requires-python = ">=3.8"
 classifiers = [
     "Programming Language :: Python :: 3",
-    "License :: OSI Approved :: MIT License",
+    "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
     "Operating System :: OS Independent",
 ]
 
 [project.urls]
-Homepage = "https://github.com/BRomans/CortexToolkit"
-Issues = "https://github.com/BRomans/CortexToolkit/issues"
+Homepage = "https://github.com/BRomans/OpenCortex"
+Issues = "https://github.com/BRomans/OpenCortex/issues"

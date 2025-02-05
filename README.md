@@ -1,16 +1,17 @@
 # OpenCortex
-OpenCortex is a fully-featured EEG streaming app to stream EEG data and markers.
+OpenCortex is a fully-featured EEG streamer that includes a classifier and a GUI to visualize the data in real-time.  
+Via the LabStreamingLayer (LSL) protocol, it can receive and send data to any compatible device or software and be used
+to build real-time neural applications (BCI, neurofeedback, etc.).
 
+## Features
 - GUI to plot EEG in real-time
-- signal filters (visualization only)
-- signal quality estimators
-- a button to save custom markers on the data
-- an inlet stream that can receive event markers through LSL from an external source
-- an outlet stream that can send raw EEG to an external source
-- a general-purpose classifier class that can be initialized with any model from Scikit-Learn
-- cross-validation plots with ROC curve and Confusion Matrix
-- educational Jupyter notebooks to analyse EEG data using the library MNE and to perform classification tasks using Scikit-Learn.
-
+- Signal real-time filtering (bandpass, notch) 
+- Signal quality estimators
+- Save custom markers on the data
+- Inlet stream to mark the data with external triggers
+- Outlet stream that can send raw EEG to an external receiver
+- General-purpose classifier interface that can be initialized with any model from Scikit-Learn
+- Cross-validation plots with ROC curve and Confusion Matrix
 
 ## Table of Contents
 

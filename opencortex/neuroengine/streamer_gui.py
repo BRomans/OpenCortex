@@ -15,17 +15,17 @@ import pyqtgraph as pg
 import os
 import yaml
 from PyQt5 import QtWidgets, QtCore
-from application.classifier import Classifier
-from application.lsl.lsl_stream import LSLStreamThread, start_lsl_eeg_stream, start_lsl_power_bands_stream, \
+from opencortex.neuroengine.classifier import Classifier
+from opencortex.neuroengine.lsl.lsl_stream import LSLStreamThread, start_lsl_eeg_stream, start_lsl_power_bands_stream, \
     start_lsl_inference_stream, start_lsl_quality_stream, push_lsl_raw_eeg, push_lsl_band_powers, push_lsl_inference, \
     push_lsl_quality
-from utils.layouts import layouts
 from pyqtgraph import ScatterPlotItem, mkBrush
 from brainflow.board_shim import BoardShim
 from brainflow.data_filter import DataFilter, FilterTypes, DetrendOperations
 from concurrent.futures import ThreadPoolExecutor
-from processing.preprocessing import extract_band_powers
-from processing.proc_helper import freq_bands
+from opencortex.processing.preprocessing import extract_band_powers
+from opencortex.processing.proc_helper import freq_bands
+from opencortex.utils.layouts import layouts
 
 # 16 Color ascii codes for the 16 EEG channels, afterwards just repeat
 colors = ["blue", "green", "yellow", "purple", "orange", "pink", "brown", "gray",
@@ -40,7 +40,7 @@ def write_header(file, board_id):
     file.write('\n')
 
 
-class Streamer:
+class StreamerGUI:
 
     def __init__(self, board, params, window_size=1, config_file='config.yaml'):
         # Load configuration from file
@@ -117,8 +117,8 @@ class Streamer:
         self.lsl_thread.stop_predicting.connect(self.set_inference_mode)
         self.lsl_thread.start()
 
-        self.win = pg.GraphicsLayoutWidget(title='Cortex Streamer', size=(1200, 800))
-        self.win.setWindowTitle('Cortex Streamer')
+        self.win = pg.GraphicsLayoutWidget(title='OpenCortex Streamer', size=(1920, 1080))
+        self.win.setWindowTitle('OpenCortex Streamer')
         self.win.show()
         panel = self.create_parameters_panel()
         plot = self.init_plot()
@@ -156,7 +156,7 @@ class Streamer:
         self.app.exec_()
 
     def create_parameters_panel(self):
-        """Create buttons to interact with the streamer"""
+        """Create buttons to interact with the neuroengine"""
 
         # Button to write trigger and input box to specify the trigger value
         self.input_box = QtWidgets.QLineEdit()
@@ -615,9 +615,8 @@ class Streamer:
             self.start_button.setText('Stop Plotting')
             self.plot = True
 
-
     def quit(self):
-        """ Quit the application, join the threads and stop the streaming"""
+        """ Quit the neuroengine, join the threads and stop the streaming"""
         if self.save_data_checkbox.isChecked():
             logging.info("Exporting data to file")
             self.export_file()

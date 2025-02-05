@@ -2,8 +2,8 @@ import argparse
 import logging
 from PyQt5 import QtWidgets
 from brainflow.board_shim import BoardShim, BrainFlowInputParams, BoardIds
-from application.setup_dialog import SetupDialog, retrieve_board_id, retrieve_eeg_devices
-from application.streamer import Streamer
+from neuroengine.setup_dialog import SetupDialog, retrieve_board_id, retrieve_eeg_devices
+from neuroengine.streamer_gui import StreamerGUI
 
 logging_levels = {0: logging.NOTSET, 1: logging.DEBUG, 2: logging.INFO, 3: logging.WARNING, 4: logging.ERROR,
                   5: logging.CRITICAL}
@@ -69,7 +69,7 @@ def main():
     try:
         board_shim.prepare_session()
         board_shim.start_stream(streamer_params=args.streamer_params)
-        streamer = Streamer(board_shim, params=params, window_size=window_size)
+        streamer = StreamerGUI(board_shim, params=params, window_size=window_size, config_file='config.yaml')
     except BaseException:
         logging.warning('Exception', exc_info=True)
     finally:
