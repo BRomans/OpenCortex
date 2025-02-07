@@ -1,6 +1,7 @@
 import os
 import argparse
 import logging
+from sys import platform
 from PyQt5 import QtWidgets
 from brainflow.board_shim import BoardShim, BrainFlowInputParams, BoardIds
 from opencortex.neuroengine.setup_dialog import SetupDialog, retrieve_board_id, retrieve_eeg_devices
@@ -12,6 +13,21 @@ logging_levels = {0: logging.NOTSET, 1: logging.DEBUG, 2: logging.INFO, 3: loggi
 base_dir = os.path.dirname(os.path.abspath(__file__))  # Gets the directory of the script
 config_path = os.path.join(base_dir, "default_config.yaml")
 
+open_bci_ids = [BoardIds.CYTON_BOARD, BoardIds.CYTON_DAISY_BOARD, BoardIds.CYTON_DAISY_WIFI_BOARD,
+                BoardIds.CYTON_WIFI_BOARD, BoardIds.GANGLION_BOARD, BoardIds.GANGLION_WIFI_BOARD,
+                BoardIds.GANGLION_NATIVE_BOARD]
+
+
+def get_com_ports():
+    com_ports = []
+    if platform == 'win32':
+        com_ports = ['COM' + str(i) for i in range(6)]
+    elif platform == 'linux':
+        com_ports = ['/dev/ttyUSB' + str(i) for i in range(6)]
+    elif platform == 'darwin':
+        com_ports = ['/dev/tty.usbserial-' + str(i) for i in range(6)]
+    return com_ports
+
 
 def run():
     BoardShim.enable_dev_board_logger()
@@ -21,11 +37,11 @@ def run():
     # use docs to check which parameters are required for specific board, e.g. for Cyton - set serial port
     parser.add_argument('--timeout', type=int, help='timeout for device discovery or connection', required=False,
                         default=0)
-    parser.add_argument('--ip-port', type=int, help='ip port', required=False, default=0)
+    parser.add_argument('--ip-port', type=int, help='ip port', required=False, default=6789)
     parser.add_argument('--ip-protocol', type=int, help='ip protocol, check IpProtocolType enum', required=False,
                         default=0)
     parser.add_argument('--ip-address', type=str, help='ip address', required=False, default='')
-    parser.add_argument('--serial-port', type=str, help='serial port', required=False, default='')
+    parser.add_argument('--serial-port', type=str, help='serial port', required=False, default='COM3')
     parser.add_argument('--mac-address', type=str, help='mac address', required=False, default='')
     parser.add_argument('--other-info', type=str, help='other info', required=False, default='')
     parser.add_argument('--streamer-params', type=str, help='streamer params', required=False, default='')
@@ -68,7 +84,7 @@ def run():
         logging.info('Impossible to connect device', e)
         return
     window_size = 1 if window_size == 0 else int(window_size)
-
+    com_ports = get_com_ports()
     params.serial_number = args.serial_number
     board_shim = BoardShim(args.board_id, params)
     config_file = args.config_file
@@ -78,9 +94,21 @@ def run():
     else:
         logging.info(f'Loaded config file: {config_file}')
     try:
-        board_shim.prepare_session()
-        board_shim.start_stream(streamer_params=args.streamer_params)
-        streamer = StreamerGUI(board_shim, params=params, window_size=window_size, config_file=config_file)
+        if board_shim.board_id in open_bci_ids:
+            for com_port in com_ports:
+                try:
+                    params.serial_port = com_port
+                    board_shim = BoardShim(args.board_id, params)
+                    board_shim.prepare_session()
+                    board_shim.start_stream(streamer_params=args.streamer_params)
+                    streamer = StreamerGUI(board_shim, params=params, window_size=window_size, config_file=config_file)
+                    break
+                except BaseException:
+                    logging.warning(f'Could not connect to port {com_port}, trying next one')
+        else:
+            board_shim.prepare_session()
+            board_shim.start_stream(streamer_params=args.streamer_params)
+            streamer = StreamerGUI(board_shim, params=params, window_size=window_size, config_file=config_file)
     except BaseException:
         logging.warning('Exception', exc_info=True)
     finally:
@@ -92,4 +120,3 @@ def run():
             except BaseException:
                 logging.warning('Streaming has already been stopped')
             board_shim.release_session()
-
