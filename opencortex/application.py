@@ -5,7 +5,7 @@ from sys import platform
 from PyQt5 import QtWidgets
 from brainflow.board_shim import BoardShim, BrainFlowInputParams, BoardIds
 from opencortex.neuroengine.setup_dialog import SetupDialog, retrieve_board_id, retrieve_eeg_devices
-from opencortex.neuroengine.streamer_gui import StreamerGUI
+from opencortex.neuroengine.opencortex_ng import OpenCortexEngine
 
 logging_levels = {0: logging.NOTSET, 1: logging.DEBUG, 2: logging.INFO, 3: logging.WARNING, 4: logging.ERROR,
                   5: logging.CRITICAL}
@@ -101,14 +101,14 @@ def run():
                     board_shim = BoardShim(args.board_id, params)
                     board_shim.prepare_session()
                     board_shim.start_stream(streamer_params=args.streamer_params)
-                    streamer = StreamerGUI(board_shim, params=params, window_size=window_size, config_file=config_file)
+                    streamer = OpenCortexEngine(board_shim, params=params, window_size=window_size, config_file=config_file)
                     break
                 except BaseException:
                     logging.warning(f'Could not connect to port {com_port}, trying next one')
         else:
             board_shim.prepare_session()
             board_shim.start_stream(streamer_params=args.streamer_params)
-            streamer = StreamerGUI(board_shim, params=params, window_size=window_size, config_file=config_file)
+            streamer = OpenCortexEngine(board_shim, params=params, window_size=window_size, config_file=config_file)
     except BaseException:
         logging.warning('Exception', exc_info=True)
     finally:

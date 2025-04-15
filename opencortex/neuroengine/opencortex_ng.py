@@ -12,17 +12,17 @@ import time
 import numpy as np
 import logging
 import pyqtgraph as pg
-import os
 import yaml
 from PyQt5 import QtWidgets, QtCore
 from opencortex.neuroengine.classifier import Classifier
+from opencortex.neuroengine.pipes.data_processor import DataProcessor
 from opencortex.neuroengine.lsl.lsl_stream import LSLStreamThread, start_lsl_eeg_stream, start_lsl_power_bands_stream, \
     start_lsl_inference_stream, start_lsl_quality_stream, push_lsl_raw_eeg, push_lsl_band_powers, push_lsl_inference, \
     push_lsl_quality
 from pyqtgraph import ScatterPlotItem, mkBrush
 from brainflow.board_shim import BoardShim
-from brainflow.data_filter import DataFilter, FilterTypes, DetrendOperations
 from concurrent.futures import ThreadPoolExecutor
+from opencortex.neuroengine.pipes.data_writer import DataWriter
 from opencortex.processing.preprocessing import extract_band_powers
 from opencortex.processing.proc_helper import freq_bands
 from opencortex.utils.layouts import layouts
@@ -33,13 +33,7 @@ colors = ["blue", "green", "yellow", "purple", "orange", "pink", "brown", "gray"
           "cyan", "magenta", "lime", "teal", "lavender", "turquoise", "maroon", "olive"]
 
 
-def write_header(file, board_id):
-    for column in layouts[board_id]["header"]:
-        file.write(str(column) + '\t')
-    file.write('\n')
-
-
-class StreamerGUI:
+class OpenCortexEngine:
 
     def __init__(self, board, params, window_size=1, config_file='default_config.yaml'):
         # Load configuration from file
@@ -78,6 +72,9 @@ class StreamerGUI:
         self.num_points = self.window_size * self.sampling_rate
         self.filtered_eeg = np.zeros((len(self.eeg_channels) + 1, self.num_points))
         logging.info(f"Connected to {self.board.get_device_name(self.board.get_board_id())}")
+
+        self.data_processor = DataProcessor(self.filtered_eeg, self.sampling_rate)
+        self.data_writer = DataWriter(self.board_id, self.board, layouts[self.board_id]["header"])
 
         # Initialize the classifier in a new thread
         self.classifier = None
@@ -285,10 +282,19 @@ class StreamerGUI:
             raise ValueError("Window size cannot be zero")
         try:
             data = self.board.get_current_board_data(num_samples=self.num_points)
-            self.filter_data_buffer(data)
             start_eeg = layouts[self.board_id]["eeg_start"]
             end_eeg = layouts[self.board_id]["eeg_end"]
             eeg = data[start_eeg:end_eeg]
+            bp_low_freq = float(self.bandpass_box_low.text()) if self.bandpass_box_low.text() != '' else 1
+            bp_high_freq = float(self.bandpass_box_high.text()) if self.bandpass_box_high.text() != '' else 30
+            nt_freqs = np.array(self.notch_box.text().split(',')) if self.notch_box.text() != '' else np.array([50, 60])
+            self.data_processor.filter_data_buffer(eeg=eeg,
+                                                   channels=self.eeg_channels,
+                                                   bandpass=self.bandpass_checkbox.isChecked(),
+                                                   notch=self.notch_checkbox.isChecked(),
+                                                   bp_low_fq=bp_low_freq,
+                                                   bp_high_fq=bp_high_freq,
+                                                   nt_freqs=nt_freqs)
             self.chunk_counter += 1
 
             for count, channel in enumerate(self.eeg_channels):
@@ -380,10 +386,20 @@ class StreamerGUI:
             data = self.board.get_current_board_data(num_samples=self.num_points)
             if self.window_size == 0:
                 raise ValueError("Window size cannot be zero")
-            self.filter_data_buffer(data)
+
             start_eeg = layouts[self.board_id]["eeg_start"]
             end_eeg = layouts[self.board_id]["eeg_end"]
             eeg = data[start_eeg:end_eeg]
+            bp_low_freq = float(self.bandpass_box_low.text()) if self.bandpass_box_low.text() != '' else 1
+            bp_high_freq = float(self.bandpass_box_high.text()) if self.bandpass_box_high.text() != '' else 30
+            nt_freqs = np.array(self.notch_box.text().split(',')) if self.notch_box.text() != '' else np.array([50, 60])
+            self.data_processor.filter_data_buffer(eeg=eeg,
+                                                   channels=self.eeg_channels,
+                                                   bandpass=self.bandpass_checkbox.isChecked(),
+                                                   notch=self.notch_checkbox.isChecked(),
+                                                   bp_low_fq=bp_low_freq,
+                                                   bp_high_fq=bp_high_freq,
+                                                   nt_freqs=nt_freqs)
 
             for count, channel in enumerate(self.eeg_channels):
                 ch_data = eeg[count]
@@ -408,28 +424,6 @@ class StreamerGUI:
 
             self.update_quality_indicators(filtered_eeg, push=True)
             self.app.processEvents()
-
-    def export_file(self, filename=None, folder='export', format='csv'):
-        """
-        Export the data to a file
-        :param filename: str, name of the file
-        :param folder: str, name of the folder
-        :param format: str, format of the file
-        """
-        # Compose the file name using the board name and the current time
-        try:
-            if filename is None:
-                filename = f"{self.board.get_device_name(self.board_id)}_{time.strftime('%Y-%m-%d_%H-%M-%S')}"
-            path = os.path.join(folder, filename + '.' + format)
-            if not os.path.exists(folder):
-                os.makedirs(folder)
-            with open(path, 'w') as self.file:
-                write_header(self.file, self.board_id)
-                data = self.board.get_board_data()
-                if format == 'csv':
-                    DataFilter.write_file(data, path, 'a')
-        except Exception as e:
-            logging.error(f"Error exporting file: {e}")
 
     def write_trigger(self, trigger=1, timestamp=0):
         """
@@ -545,57 +539,6 @@ class StreamerGUI:
                 break
         return color, amplitude, q_score
 
-    def filter_data_buffer(self, data):
-        start_eeg = layouts[self.board_id]["eeg_start"]
-        end_eeg = layouts[self.board_id]["eeg_end"]
-        eeg = data[start_eeg:end_eeg]
-        for count, channel in enumerate(self.eeg_channels):
-            ch_data = eeg[count]
-            if self.bandpass_checkbox.isChecked():
-                start_freq = float(self.bandpass_box_low.text()) if self.bandpass_box_low.text() != '' else 0
-                stop_freq = float(self.bandpass_box_high.text()) if self.bandpass_box_high.text() != '' else 0
-                self.apply_bandpass_filter(ch_data, start_freq, stop_freq)
-            if self.notch_checkbox.isChecked():
-                freqs = np.array(self.notch_box.text().split(','))
-                self.apply_notch_filter(ch_data, freqs)
-
-    def apply_bandpass_filter(self, ch_data, start_freq, stop_freq, order=4,
-                              filter_type=FilterTypes.BUTTERWORTH_ZERO_PHASE, ripple=0):
-        DataFilter.detrend(ch_data, DetrendOperations.CONSTANT.value)
-        if start_freq >= stop_freq:
-            logging.error("Band-pass Filter: Start frequency should be less than stop frequency")
-            return
-        if start_freq < 0 or stop_freq < 0:
-            logging.error("Band-pass Filter: Frequency values should be positive")
-            return
-        if start_freq > self.sampling_rate / 2 or stop_freq > self.sampling_rate / 2:
-            logging.error(
-                "Band-pass Filter: Frequency values should be less than half of the sampling rate in respect of Nyquist theorem")
-            return
-        try:
-            DataFilter.perform_bandpass(ch_data, self.sampling_rate, start_freq, stop_freq, order, filter_type, ripple)
-        except ValueError as e:
-            logging.error(f"Invalid frequency value {e}")
-
-    def apply_notch_filter(self, ch_data, freqs, bandwidth=2.0, order=4, filter_type=FilterTypes.BUTTERWORTH_ZERO_PHASE,
-                           ripple=0):
-        for freq in freqs:
-            if float(freq) < 0:
-                logging.error("Frequency values should be positive")
-                return
-            if float(freq) > self.sampling_rate / 2:
-                logging.error("Frequency values should be less than half of the sampling rate in respect of Nyquist "
-                              "theorem")
-                return
-        try:
-            for freq in freqs:
-                start_freq = float(freq) - bandwidth
-                end_freq = float(freq) + bandwidth
-                DataFilter.perform_bandstop(ch_data, self.sampling_rate, start_freq, end_freq, order,
-                                            filter_type, ripple)
-        except ValueError:
-            logging.error("Invalid frequency value")
-
     def toggle_stream(self):
         """ Start or stop the streaming of data"""
         if self.is_streaming:
@@ -618,7 +561,7 @@ class StreamerGUI:
         """ Quit the neuroengine, join the threads and stop the streaming"""
         if self.save_data_checkbox.isChecked():
             logging.info("Exporting data to file")
-            self.export_file()
+            self.data_writer.export_file()
         self.lsl_thread.quit()
         self.classifier_thread.join()
         self.board.stop_stream()
