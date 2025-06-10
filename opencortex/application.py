@@ -11,7 +11,7 @@ logging_levels = {0: logging.NOTSET, 1: logging.DEBUG, 2: logging.INFO, 3: loggi
                   5: logging.CRITICAL}
 
 base_dir = os.path.dirname(os.path.abspath(__file__))  # Gets the directory of the script
-config_path = os.path.join(base_dir, "default_config.yaml")
+config_path = os.path.join(base_dir, "config", "Default.yaml")
 
 open_bci_ids = [BoardIds.CYTON_BOARD, BoardIds.CYTON_DAISY_BOARD, BoardIds.CYTON_DAISY_WIFI_BOARD,
                 BoardIds.CYTON_WIFI_BOARD, BoardIds.GANGLION_BOARD, BoardIds.GANGLION_WIFI_BOARD,
@@ -86,7 +86,7 @@ def run():
     window_size = 1 if window_size == 0 else int(window_size)
     com_ports = get_com_ports()
     params.serial_number = args.serial_number
-    config_file = args.config_file
+    config_file = os.path.join(base_dir, 'config', args.config_file)
     if not os.path.exists(config_file):
         logging.warning(f'Config file {config_file} does not exist, using default config')
         config_file = config_path

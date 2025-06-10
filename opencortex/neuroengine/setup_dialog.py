@@ -11,6 +11,7 @@ import re
 import bluetooth
 import logging
 from brainflow import BoardIds
+import os
 
 log_labels = {0: 'NOTSET', 1: 'DEBUG', 2: 'INFO', 3: 'WARNING', 4: 'ERROR', 5: 'CRITICAL'}
 
@@ -77,17 +78,19 @@ class SetupDialog(QtWidgets.QDialog):
         layout.addWidget(self.device_combo)
 
         # Create a textbox to select configuration file
-        self.config_file = QtWidgets.QLineEdit(self)
-        layout.addWidget(QtWidgets.QLabel('Configuration file'))
-        layout.addWidget(self.config_file)
-        default_config_file = 'default_config.yaml'
-        self.config_file.setText(default_config_file)
+        self.config_file_list = QtWidgets.QComboBox(self)
+        config_files = os.listdir('opencortex/config')
+        config_files = [f for f in config_files if f.endswith('.yaml')]
+        self.config_file_list.addItems(config_files)
+        layout.addWidget(QtWidgets.QLabel('Select Configuration'))
+        layout.addWidget(self.config_file_list)
+
 
         # Create slider for window size
         self.window_size_slider = QtWidgets.QSlider(QtCore.Qt.Horizontal, self)
         self.window_size_slider.setMinimum(1)
         self.window_size_slider.setMaximum(20)
-        self.window_size_slider.setValue(1)
+        self.window_size_slider.setValue(5)
         self.window_size_slider.valueChanged.connect(self.update_window_size_label)
         self.window_size_label = QtWidgets.QLabel(f'Window size: {self.window_size_slider.value()} seconds', self)
 
@@ -119,13 +122,10 @@ class SetupDialog(QtWidgets.QDialog):
     def update_logging_level_label(self, value):
         self.logging_level_label.setText(f'Logging level: {log_labels[value]} ')
 
-    def update_config_file(self, value):
-        self.config_file.setText(value)
-
     def get_data(self):
         return (
             self.device_combo.currentText(),
             self.window_size_slider.value(),
             self.logging_level_slider.value(),
-            self.config_file.text()
+            self.config_file_list.currentText(),
         )
