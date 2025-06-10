@@ -16,13 +16,15 @@ import os
 import yaml
 from PyQt5 import QtWidgets, QtCore
 from opencortex.neuroengine.classifier import Classifier
-from opencortex.neuroengine.lsl.lsl_stream import LSLStreamThread, start_lsl_eeg_stream, start_lsl_power_bands_stream, \
+from opencortex.neuroengine.network.lsl_stream import LSLStreamThread, start_lsl_eeg_stream, start_lsl_power_bands_stream, \
     start_lsl_inference_stream, start_lsl_quality_stream, push_lsl_raw_eeg, push_lsl_band_powers, push_lsl_inference, \
     push_lsl_quality
 from pyqtgraph import ScatterPlotItem, mkBrush
 from brainflow.board_shim import BoardShim
 from brainflow.data_filter import DataFilter, FilterTypes, DetrendOperations
 from concurrent.futures import ThreadPoolExecutor
+
+from opencortex.neuroengine.network.osc_stream import OscStreamThread
 from opencortex.processing.preprocessing import extract_band_powers
 from opencortex.processing.proc_helper import freq_bands
 from opencortex.utils.layouts import layouts
@@ -66,6 +68,9 @@ class StreamerGUI:
         self.is_streaming = True
         self.inference_mode = False
         self.first_prediction = True
+        self.lsl_state = True
+        self.osc_state = False
+        self.osc_thread = None
         self.params = params
         self.initial_ts = time.time()
         logging.info("Searching for devices...")
@@ -116,16 +121,27 @@ class StreamerGUI:
         self.lsl_thread.stop_predicting.connect(self.set_inference_mode)
         self.lsl_thread.start()
 
+
+
         self.win = pg.GraphicsLayoutWidget(title='OpenCortex Streamer', size=(1920, 1080))
         self.win.setWindowTitle('OpenCortex Streamer')
         self.win.show()
+        lsl_panel = self.create_lsl_panel()
         panel = self.create_parameters_panel()
+        osc_panel = self.create_osc_panel()
         plot = self.init_plot()
+
+        side_panel_widget = QtWidgets.QWidget()
+        side_panel_layout = QtWidgets.QVBoxLayout()
+        side_panel_layout.addWidget(lsl_panel)
+        side_panel_layout.addWidget(osc_panel)
+        side_panel_layout.addWidget(panel)
+        side_panel_widget.setLayout(side_panel_layout)
 
         # Create a layout for the main window
         self.main_layout = QtWidgets.QGridLayout()
         self.main_layout.addWidget(plot, 0, 0)
-        self.main_layout.addWidget(panel, 0, 1, alignment=QtCore.Qt.AlignBottom)
+        self.main_layout.addWidget(side_panel_widget,0, 1, alignment=QtCore.Qt.AlignCenter)
 
         # Set the main layout for the window
         self.win.setLayout(self.main_layout)
@@ -154,8 +170,15 @@ class StreamerGUI:
 
         self.app.exec_()
 
-    def create_parameters_panel(self):
-        """Create buttons to interact with the neuroengine"""
+    def create_lsl_panel(self):
+        """Create a panel for LSL controls"""
+        lsl_panel = QtWidgets.QWidget()
+        lsl_layout = QtWidgets.QVBoxLayout()
+
+        # Create a button to start/stop LSL
+        self.lsl_button = QtWidgets.QPushButton('Start LSL')
+        self.lsl_button.setFixedWidth(100)
+        self.lsl_button.clicked.connect(self.toggle_lsl)
 
         # Button to write trigger and input box to specify the trigger value
         self.input_box = QtWidgets.QLineEdit()
@@ -166,6 +189,79 @@ class StreamerGUI:
         self.trigger_button = QtWidgets.QPushButton('Send Trigger')
         self.trigger_button.setFixedWidth(100)  # Set a fixed width for the button
         self.trigger_button.clicked.connect(lambda: self.write_trigger(int(self.input_box.text())))
+
+        self.lsl_chunk_checkbox = QtWidgets.QCheckBox('Chunk data')
+        self.lsl_chunk_checkbox.setStyleSheet('color: white')
+        self.lsl_chunk_checkbox.setChecked(True)
+
+        # Add the button to the layout
+        lsl_controls_label = QtWidgets.QLabel("LSL Controls")
+        lsl_controls_label.setStyleSheet("color: white; font-size: 20px;")
+        lsl_layout.addWidget(lsl_controls_label)
+        lsl_layout.addWidget(self.input_box)
+        lsl_layout.addWidget(self.trigger_button)
+        lsl_layout.addWidget(self.lsl_chunk_checkbox)
+        lsl_layout.addWidget(self.lsl_button)
+
+        # Set the layout for the LSL panel
+        lsl_panel.setLayout(lsl_layout)
+        lsl_panel.setMinimumWidth(250)
+        lsl_panel.setMaximumWidth(250)
+        lsl_panel.setMaximumHeight(500)
+        lsl_panel.setStyleSheet("background-color: #43485E; color: white;")
+
+        return lsl_panel
+
+    def create_osc_panel(self):
+        """Create a panel for OSC controls"""
+        osc_panel = QtWidgets.QWidget()
+        osc_layout = QtWidgets.QVBoxLayout()
+
+        # Create a button to start/stop OSC
+        self.osc_address_input = QtWidgets.QLineEdit()
+        address_label = QtWidgets.QLabel("OSC Address")
+        self.osc_address_input.setText("127.0.0.1")
+        self.osc_address_input.setPlaceholderText("OSC Address")
+        self.osc_address_input.setFixedWidth(150)
+        port_input_label = QtWidgets.QLabel("OSC Listen")
+        self.osc_port_input = QtWidgets.QLineEdit()
+        self.osc_port_input.setText("8000")
+        self.osc_port_input.setPlaceholderText("OSC Listen Port")
+        port_output_label = QtWidgets.QLabel("OSC Send")
+        self.osc_port_output = QtWidgets.QLineEdit()
+        self.osc_port_output.setText("9000")
+        self.osc_port_output.setPlaceholderText("OSC Send Port")
+
+        self.osc_button = QtWidgets.QPushButton('Start OSC')
+        self.osc_button.setFixedWidth(100)
+        self.osc_button.clicked.connect(self.toggle_osc)
+
+
+        # Add the button to the layout
+        osc_controls_label = QtWidgets.QLabel("OSC Controls")
+        osc_controls_label.setStyleSheet("color: white; font-size: 20px;")
+        osc_layout.addWidget(osc_controls_label)
+        osc_layout.addWidget(address_label)
+        osc_layout.addWidget(self.osc_address_input)
+        osc_layout.addWidget(port_input_label)
+        osc_layout.addWidget(self.osc_port_input)
+        osc_layout.addWidget(port_output_label)
+        osc_layout.addWidget(self.osc_port_output)
+        osc_layout.addWidget(self.osc_button)
+
+        # Set the layout for the OSC panel
+        osc_panel.setLayout(osc_layout)
+        osc_panel.setMinimumWidth(250)
+        osc_panel.setMaximumWidth(250)
+        osc_panel.setMaximumHeight(500)
+        osc_panel.setStyleSheet("background-color: #43485E; color: white;")
+
+        return osc_panel
+
+    def create_parameters_panel(self):
+        """Create buttons to interact with the neuroengine"""
+
+
 
         # Start / Stop buttons
         self.start_button = QtWidgets.QPushButton('Stop Plot')
@@ -206,10 +302,6 @@ class StreamerGUI:
         self.notch_box.setPlaceholderText('0, 0')
         self.notch_box.setText('50, 60')
 
-        self.lsl_chunk_checkbox = QtWidgets.QCheckBox('Chunk data')
-        self.lsl_chunk_checkbox.setStyleSheet('color: white')
-        self.lsl_chunk_checkbox.setChecked(True)
-
         # Create a layout for buttons
         start_save_layout = QtWidgets.QVBoxLayout()
         start_save_layout.addWidget(self.save_data_checkbox)
@@ -230,7 +322,6 @@ class StreamerGUI:
         eeg_options_label = QtWidgets.QLabel("EEG Options")
         eeg_options_label.setStyleSheet("color: white; font-size: 20px;")
         eeg_params_layout = QtWidgets.QVBoxLayout()
-        eeg_params_layout.addWidget(self.lsl_chunk_checkbox)
         eeg_params_layout.addLayout(start_save_layout)
 
         # Create a vertical layout to contain the notch filter and the button layout
@@ -239,13 +330,6 @@ class StreamerGUI:
         filter_params_layout = QtWidgets.QVBoxLayout()
         filter_params_layout.addLayout(bandpass_layout)
         filter_params_layout.addLayout(notch_layout)
-
-        # Create a center layout for trigger button
-        markers_label = QtWidgets.QLabel("Markers")
-        markers_label.setStyleSheet("color: white; size: 20px;")
-        markers_params_layout = QtWidgets.QVBoxLayout()
-        markers_params_layout.addWidget(self.input_box)
-        markers_params_layout.addWidget(self.trigger_button)
 
         # Create a layout for classifier plots
         model_label = QtWidgets.QLabel("Classifier")
@@ -258,8 +342,6 @@ class StreamerGUI:
         vertical_container = QtWidgets.QVBoxLayout()
         vertical_container.addWidget(eeg_options_label)
         vertical_container.addLayout(eeg_params_layout)
-        vertical_container.addWidget(markers_label)
-        vertical_container.addLayout(markers_params_layout)
         vertical_container.addWidget(filters_label)
         vertical_container.addLayout(filter_params_layout)
         vertical_container.addWidget(model_label)
@@ -268,11 +350,40 @@ class StreamerGUI:
         # Create a widget to contain the layout
         parameters = QtWidgets.QWidget()
         parameters.setLayout(vertical_container)
+        parameters.setMinimumWidth(250)
         parameters.setMaximumWidth(250)
         parameters.setMaximumHeight(500)
         parameters.setStyleSheet("background-color: #43485E; color: white;")
 
         return parameters
+
+    def toggle_osc(self):
+        if not self.osc_state:
+            listen_port = int(self.osc_port_input.text())
+            send_port = int(self.osc_port_output.text())
+            self.osc_thread = OscStreamThread(listen_port=listen_port, send_port=send_port)
+            self.osc_thread.message_received.connect(lambda addr, args: print(f"Received {addr}: {args}"))
+            self.osc_thread.start()
+
+            self.osc_button.setText('Stop OSC')
+            self.osc_state = True
+        else:
+            self.osc_thread.stop()
+            self.osc_thread = None
+            self.osc_button.setText('Start OSC')
+            self.osc_state = False
+
+    def toggle_lsl(self):
+        """Toggle LSL streaming on and off."""
+        if self.lsl_state:
+            self.lsl_thread.quit()
+            self.lsl_button.setText('Start LSL')
+            self.lsl_state = False
+        else:
+            self.lsl_thread.start()
+            self.lsl_button.setText('Stop LSL')
+            self.lsl_state = True
+
 
     def set_inference_mode(self):
         """Set the BCI running status"""
@@ -310,6 +421,8 @@ class StreamerGUI:
             push_lsl_raw_eeg(self.eeg_outlet, self.filtered_eeg, start_eeg, end_eeg, self.chunk_counter, ts,
                              self.lsl_chunk_checkbox.isChecked())
             push_lsl_band_powers(self.band_powers_outlet, band_powers_array, ts)
+            # Send a test message
+            if self.osc_thread: self.osc_thread.send_message(self.osc_address_input.text(), [1, 2, 3])
         except Exception as e:
             logging.error(f"Error pushing data to LSL: {e}")
         self.app.processEvents()
