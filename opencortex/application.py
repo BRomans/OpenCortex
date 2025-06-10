@@ -37,7 +37,7 @@ def run():
     # use docs to check which parameters are required for specific board, e.g. for Cyton - set serial port
     parser.add_argument('--timeout', type=int, help='timeout for device discovery or connection', required=False,
                         default=0)
-    parser.add_argument('--ip-port', type=int, help='ip port', required=False, default=6789)
+    parser.add_argument('--ip-port', type=int, help='ip port', required=False, default=0)
     parser.add_argument('--ip-protocol', type=int, help='ip protocol, check IpProtocolType enum', required=False,
                         default=0)
     parser.add_argument('--ip-address', type=str, help='ip address', required=False, default='')
@@ -86,7 +86,6 @@ def run():
     window_size = 1 if window_size == 0 else int(window_size)
     com_ports = get_com_ports()
     params.serial_number = args.serial_number
-    board_shim = BoardShim(args.board_id, params)
     config_file = args.config_file
     if not os.path.exists(config_file):
         logging.warning(f'Config file {config_file} does not exist, using default config')
@@ -94,7 +93,7 @@ def run():
     else:
         logging.info(f'Loaded config file: {config_file}')
     try:
-        if board_shim.board_id in open_bci_ids:
+        if args.board_id in open_bci_ids:
             for com_port in com_ports:
                 try:
                     params.serial_port = com_port
@@ -106,11 +105,13 @@ def run():
                 except BaseException:
                     logging.warning(f'Could not connect to port {com_port}, trying next one')
         else:
+            board_shim = BoardShim(args.board_id, params)
             board_shim.prepare_session()
             board_shim.start_stream(streamer_params=args.streamer_params)
             streamer = StreamerGUI(board_shim, params=params, window_size=window_size, config_file=config_file)
-    except BaseException:
+    except BaseException as e:
         logging.warning('Exception', exc_info=True)
+        logging.error(f'Could not prepare session: {e}')
     finally:
         logging.info('End')
         if board_shim.is_prepared():
