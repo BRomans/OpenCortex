@@ -1,6 +1,6 @@
 plot: true
 save_data: true
-model: RF
+model: MAJ
 nclasses: 4
 proba: true
 group_predictions: true

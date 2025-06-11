@@ -12,7 +12,8 @@ import numpy as np
 import matplotlib
 from brainflow import BoardShim, BoardIds
 from imblearn.over_sampling import RandomOverSampler
-from mne import set_eeg_reference, find_events, Epochs
+from mne import find_events, Epochs
+from sklearn.calibration import CalibratedClassifierCV
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import f1_score, make_scorer
 from sklearn.model_selection import cross_val_score, StratifiedKFold, cross_val_predict, train_test_split
@@ -20,6 +21,7 @@ from sklearn.preprocessing import LabelEncoder, StandardScaler
 from sklearn.svm import SVC
 from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
 from matplotlib import pyplot as plt
+from opencortex.neuroengine.models.classification.majority_vote import MajorityVoteClassifier
 from opencortex.utils.layouts import layouts
 from opencortex.utils.loader import convert_to_mne
 from opencortex.validation.cross_val import plot_cross_validated_roc_curve, plot_cross_validated_confusion_matrix, normalize
@@ -30,10 +32,19 @@ matplotlib.use("Qt5Agg")
 random_state = 32
 np.random.seed(random_state)
 
+clf1 = CalibratedClassifierCV(
+    estimator=RandomForestClassifier(n_estimators=100, class_weight='balanced', random_state=random_state),
+    method='sigmoid', cv=5
+)
+clf2 = LinearDiscriminantAnalysis()
+clf3 = CalibratedClassifierCV(estimator=SVC(kernel='linear', probability=True, random_state=random_state),
+                              method='sigmoid', cv=5)
+
 models = {
     'SVM': SVC(kernel='linear', C=1, probability=True, random_state=random_state),
     'LDA': LinearDiscriminantAnalysis(),
-    'RF': RandomForestClassifier(n_estimators=10, random_state=random_state)
+    'RF': RandomForestClassifier(n_estimators=10, random_state=random_state),
+    'MAJ': MajorityVoteClassifier(classifiers=[clf1, clf2, clf3])
 }
 
 
@@ -135,7 +146,7 @@ class Classifier:
         raw = convert_to_mne(eeg=eeg, trigger=trigger, rescale=1e6, fs=self.fs, chs=self.chs, recompute=False,
                              transpose=False)
         if BoardIds.ENOPHONE_BOARD == self.board_id:
-            raw, _ = set_eeg_reference(raw, ref_channels='average')
+            raw = raw.copy().set_eeg_reference(ref_channels=['C3', 'C4'])
         events = find_events(raw, stim_channel='STI', initial_event=True, shortest_event=1)
 
         # drop events bigger than 90
