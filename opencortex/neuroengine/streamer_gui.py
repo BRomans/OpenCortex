@@ -16,6 +16,9 @@ import os
 import yaml
 from PyQt5 import QtWidgets, QtCore
 from opencortex.neuroengine.classifier import Classifier
+from opencortex.neuroengine.flux.base import Parallel
+from opencortex.neuroengine.flux.band_power import BandPowerExtractor
+from opencortex.neuroengine.flux.quality_estimator import QualityEstimator
 from opencortex.neuroengine.network.lsl_stream import LSLStreamThread, start_lsl_eeg_stream, start_lsl_power_bands_stream, \
     start_lsl_inference_stream, start_lsl_quality_stream, push_lsl_raw_eeg, push_lsl_band_powers, push_lsl_inference, \
     push_lsl_quality
@@ -47,6 +50,8 @@ class StreamerGUI:
         # Load configuration from file
         with open(config_file, 'r') as file:
             config = yaml.safe_load(file)
+
+
 
         self.window_size = window_size
         # Apply configuration
@@ -109,6 +114,11 @@ class StreamerGUI:
         if self.slicing_trigger > self.nclasses:
             self.slicing_trigger = self.nclasses
         logging.debug(f"Prediction interval in datapoints: {self.prediction_datapoints}")
+
+        self.pipeline = Parallel(
+            band_power=BandPowerExtractor(fs=self.sampling_rate, ch_names=self.eeg_channels),
+            quality=QualityEstimator(quality_thresholds=self.quality_thresholds)
+        )
 
         # Connect to the LSL stream threads
         self.prediction_timer = QtCore.QTimer()
@@ -415,12 +425,15 @@ class StreamerGUI:
             return
 
         try:
-            band_powers = extract_band_powers(data=self.filtered_eeg[0:len(self.eeg_channels)], fs=self.sampling_rate,
-                                              bands=freq_bands, ch_names=self.eeg_channels)
-            band_powers_array = band_powers.to_numpy()
+
+            outputs = self.pipeline(self.filtered_eeg[0:len(self.eeg_channels)])
+            band_powers = outputs["band_power"]
+            quality_scores = outputs["quality"]
+
+            push_lsl_band_powers(self.band_powers_outlet, band_powers.to_numpy(), ts)
+            push_lsl_quality(self.quality_outlet, quality_scores)
             push_lsl_raw_eeg(self.eeg_outlet, self.filtered_eeg, start_eeg, end_eeg, self.chunk_counter, ts,
                              self.lsl_chunk_checkbox.isChecked())
-            push_lsl_band_powers(self.band_powers_outlet, band_powers_array, ts)
             # Send a test message
             if self.osc_thread: self.osc_thread.send_message(self.osc_address_input.text(), [1, 2, 3])
         except Exception as e:
@@ -643,7 +656,8 @@ class StreamerGUI:
             self.quality_indicators[i].setBrush(mkBrush(color))
             self.quality_indicators[i].setData([-1], [0])  # Position the circle at (0, 0)
         if push:
-            push_lsl_quality(self.quality_outlet, q_scores)
+            #push_lsl_quality(self.quality_outlet, q_scores)
+            pass
         logging.debug(f"Qualities: {q_scores} {q_colors}")
 
     def get_channel_quality(self, eeg, threshold=75):
