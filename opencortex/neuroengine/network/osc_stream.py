@@ -48,7 +48,7 @@ class OscStreamThread(QThread):
 
     def send_message(self, address: str, args: list):
         if self.client:
-            logging.info(f"Sending message to {address}")
+            logging.info(f"Sending message to {address}: {args}")
             self.client.send_message(address, args)
 
     def stop(self):

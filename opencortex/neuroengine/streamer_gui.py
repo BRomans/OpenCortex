@@ -435,7 +435,7 @@ class StreamerGUI:
             push_lsl_raw_eeg(self.eeg_outlet, self.filtered_eeg, start_eeg, end_eeg, self.chunk_counter, ts,
                              self.lsl_chunk_checkbox.isChecked())
             # Send a test message
-            if self.osc_thread: self.osc_thread.send_message(self.osc_address_input.text(), [1, 2, 3])
+            if self.osc_thread: self.osc_thread.send_message(self.osc_address_input.text(), band_powers.to_numpy().tolist())
         except Exception as e:
             logging.error(f"Error pushing data to LSL: {e}")
         self.app.processEvents()
