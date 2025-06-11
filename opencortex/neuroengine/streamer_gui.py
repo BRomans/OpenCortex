@@ -16,9 +16,11 @@ import os
 import yaml
 from PyQt5 import QtWidgets, QtCore
 from opencortex.neuroengine.classifier import Classifier
+from opencortex.neuroengine.core.stream_engine import StreamEngine
 from opencortex.neuroengine.flux.base import Parallel
 from opencortex.neuroengine.flux.band_power import BandPowerExtractor
 from opencortex.neuroengine.flux.quality_estimator import QualityEstimator
+from opencortex.neuroengine.gui.gui_adapter import GUIAdapter
 from opencortex.neuroengine.network.lsl_stream import LSLStreamThread, start_lsl_eeg_stream, start_lsl_power_bands_stream, \
     start_lsl_inference_stream, start_lsl_quality_stream, push_lsl_raw_eeg, push_lsl_band_powers, push_lsl_inference, \
     push_lsl_quality
@@ -51,6 +53,22 @@ class StreamerGUI:
         with open(config_file, 'r') as file:
             config = yaml.safe_load(file)
 
+        # ============ NEW SERVICE-BASED APPROACH ============
+
+        # 1. Create and start StreamEngine service
+        self.stream_engine = StreamEngine(board, config, window_size)
+        self.stream_engine.start()  # Start the service
+
+        # 2. Create GUI adapter
+        self.gui_adapter = GUIAdapter(self.stream_engine)
+
+        # 3. Connect adapter signals to GUI methods
+        self.gui_adapter.data_updated.connect(self.on_data_updated)
+        self.gui_adapter.quality_updated.connect(self.on_quality_updated)
+        self.gui_adapter.prediction_ready.connect(self.on_prediction_ready)
+        self.gui_adapter.classifier_ready.connect(self.on_classifier_ready)
+        self.gui_adapter.error_occurred.connect(self.on_error)
+        self.gui_adapter.inference_mode_changed.connect(self.on_inference_mode_changed)
 
 
         self.window_size = window_size
@@ -563,30 +581,8 @@ class StreamerGUI:
         :param trigger: int, trigger value
         :param timestamp: float, timestamp value
         """
-        if trigger == '':
-            logging.error("Trigger value cannot be empty")
-            return
-        if timestamp == 0:
-            timestamp = time.time()
-        self.board.insert_marker(int(trigger))
-        if self.inference_mode:
+        self.gui_adapter.send_trigger(trigger)
 
-            # TODO figure out the criterion for the slicing trigger
-            if self.nclasses < 10:
-                slicing_trigger = self.nclasses  # add two to ensure the whole event time is covered
-            elif self.nclasses >= 10:
-                if self.nclasses % 2 == 0:
-                    slicing_trigger = (self.nclasses // 2) + 1  # add one to ensure the whole event time is covered
-                else:
-                    slicing_trigger = (self.nclasses // 2) + 2  # add two to ensure the whole event time is covered
-
-            slicing_trigger = self.slicing_trigger  # Stick with basic formula
-
-            if int(trigger) == slicing_trigger and not self.first_prediction:  # half way trial
-                self.predict_class()
-            elif int(trigger) == slicing_trigger and self.first_prediction:
-                logging.debug('Skipping first prediction')
-                self.first_prediction = False
 
     def init_classifier(self):
         """ Initialize the classifier """
@@ -598,13 +594,7 @@ class StreamerGUI:
 
     def train_classifier(self):
         """ Train the classifier"""
-        end_training_time = time.time()
-        training_length = end_training_time - self.start_training_time + 1
-        training_interval = int(training_length * self.sampling_rate)
-        logging.info(f"Training duration: {training_length}")
-        data = self.board.get_current_board_data(training_interval)
-        self.filter_data_buffer(data)
-        self.classifier.train(data, oversample=self.over_sample)
+        self.gui_adapter.train_classifier()
 
     def start_prediction_timer(self):
         """Start the prediction timer."""
@@ -749,3 +739,28 @@ class StreamerGUI:
         self.lsl_thread.quit()
         self.classifier_thread.join()
         self.board.stop_stream()
+
+    def on_data_updated(self, data):
+        """Handle data updates from StreamEngine"""
+        # For now, just log that we received data
+        logging.debug("Received data update from StreamEngine")
+
+    def on_quality_updated(self, quality_scores):
+        """Handle quality updates from StreamEngine"""
+        logging.debug(f"Received quality update: {quality_scores}")
+
+    def on_prediction_ready(self, prediction):
+        """Handle prediction results from StreamEngine"""
+        logging.info(f"Received prediction: {prediction}")
+
+    def on_classifier_ready(self):
+        """Handle classifier initialization complete"""
+        logging.info("StreamEngine classifier is ready")
+
+    def on_error(self, error_msg):
+        """Handle errors from StreamEngine"""
+        logging.error(f"StreamEngine error: {error_msg}")
+
+    def on_inference_mode_changed(self, mode):
+        """Handle inference mode changes from StreamEngine"""
+        logging.info(f"Inference mode changed: {mode}")
