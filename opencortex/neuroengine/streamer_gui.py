@@ -156,25 +156,31 @@ class StreamerGUI:
         self.win.setWindowTitle('OpenCortex Streamer')
         self.win.show()
         lsl_panel = self.create_lsl_panel()
-        panel = self.create_parameters_panel()
+        processing_panel = self.create_parameters_panel()
         osc_panel = self.create_osc_panel()
         plot = self.init_plot()
-
-        side_panel_widget = QtWidgets.QWidget()
-        side_panel_layout = QtWidgets.QVBoxLayout()
-        side_panel_layout.addWidget(lsl_panel)
-        side_panel_layout.addWidget(osc_panel)
-        side_panel_layout.addWidget(panel)
-        side_panel_widget.setLayout(side_panel_layout)
 
         self.freq_band_panel = FrequencyBandPanel()
         self.freq_band_panel.bandsChanged.connect(self.on_frequency_bands_changed)
 
+        side_panel_widget = QtWidgets.QWidget()
+        side_panel_layout = QtWidgets.QVBoxLayout()
+        side_panel_layout.addWidget(processing_panel)
+        side_panel_widget.setLayout(side_panel_layout)
+
+        bottom_panel_widget = QtWidgets.QWidget()
+        bottom_panel_layout = QtWidgets.QHBoxLayout()
+        bottom_panel_layout.addWidget(lsl_panel)
+        bottom_panel_layout.addWidget(osc_panel)
+        bottom_panel_layout.addWidget(self.freq_band_panel)
+        bottom_panel_widget.setLayout(bottom_panel_layout)
+
+
         # Create a layout for the main window
         self.main_layout = QtWidgets.QGridLayout()
-        self.main_layout.addWidget(self.freq_band_panel, 0, 0, alignment=QtCore.Qt.AlignCenter)
-        self.main_layout.addWidget(plot, 0, 1)
-        self.main_layout.addWidget(side_panel_widget,0,2, alignment=QtCore.Qt.AlignCenter)
+        self.main_layout.addWidget(plot, 0, 0)
+        self.main_layout.addWidget(bottom_panel_widget, 1, 0, alignment=QtCore.Qt.AlignCenter)
+        self.main_layout.addWidget(side_panel_widget,0,1, alignment=QtCore.Qt.AlignCenter)
 
         # Set the main layout for the window
         self.win.setLayout(self.main_layout)
@@ -204,92 +210,538 @@ class StreamerGUI:
         self.app.exec_()
 
     def create_lsl_panel(self):
-        """Create a panel for LSL controls"""
+        """Create a modern panel for LSL controls"""
         lsl_panel = QtWidgets.QWidget()
+        main_layout = QtWidgets.QVBoxLayout()
+        main_layout.setSpacing(15)
+        main_layout.setContentsMargins(15, 15, 15, 15)
+
+        # Main LSL group
+        lsl_group = QtWidgets.QGroupBox()
+        lsl_group.setStyleSheet("""
+            QGroupBox {
+                border: 2px solid #555;
+                border-radius: 8px;
+                margin: 5px;
+                padding: 10px;
+                background-color: #3a3a3a;
+            }
+        """)
         lsl_layout = QtWidgets.QVBoxLayout()
 
-        # Create a button to start/stop LSL
-        self.lsl_button = QtWidgets.QPushButton('Start LSL')
-        self.lsl_button.setFixedWidth(100)
-        self.lsl_button.clicked.connect(self.toggle_lsl)
-
-        # Button to write trigger and input box to specify the trigger value
-        self.input_box = QtWidgets.QLineEdit()
-        self.input_box.setFixedWidth(100)  # Set a fixed width for the input box
-        self.input_box.setPlaceholderText('Trigger value')
-        self.input_box.setText('1')
-
-        self.trigger_button = QtWidgets.QPushButton('Send Trigger')
-        self.trigger_button.setFixedWidth(100)  # Set a fixed width for the button
-        self.trigger_button.clicked.connect(lambda: self.write_trigger(int(self.input_box.text())))
-
-        self.lsl_chunk_checkbox = QtWidgets.QCheckBox('Chunk data')
-        self.lsl_chunk_checkbox.setStyleSheet('color: white')
-        self.lsl_chunk_checkbox.setChecked(True)
-
-        # Add the button to the layout
-        lsl_controls_label = QtWidgets.QLabel("LSL Controls")
-        lsl_controls_label.setStyleSheet("color: white; font-size: 20px;")
+        # Section title
+        lsl_controls_label = QtWidgets.QLabel("LSL Stream Controls")
+        lsl_controls_label.setStyleSheet("color: white; font-size: 16px; font-weight: bold; margin-bottom: 10px;")
+        lsl_controls_label.setAlignment(QtCore.Qt.AlignCenter)
         lsl_layout.addWidget(lsl_controls_label)
-        lsl_layout.addWidget(self.input_box)
-        lsl_layout.addWidget(self.trigger_button)
-        lsl_layout.addWidget(self.lsl_chunk_checkbox)
+
+        # Status indicator
+        self.lsl_status = QtWidgets.QLabel("●  LSL: Stopped")
+        self.lsl_status.setStyleSheet("""
+            QLabel {
+                color: #f44336;
+                font-size: 12px;
+                font-weight: bold;
+                padding: 5px;
+                background-color: #2a2a2a;
+                border-radius: 4px;
+            }
+        """)
+        self.lsl_status.setAlignment(QtCore.Qt.AlignCenter)
+        lsl_layout.addWidget(self.lsl_status)
+
+        # Trigger section
+        trigger_container = QtWidgets.QWidget()
+        trigger_layout = QtWidgets.QVBoxLayout()
+        trigger_layout.setSpacing(8)
+
+        trigger_label = QtWidgets.QLabel("Trigger Control")
+        trigger_label.setStyleSheet("color: white; font-size: 14px; font-weight: bold;")
+        trigger_layout.addWidget(trigger_label)
+
+        # Trigger input with label
+        trigger_input_layout = QtWidgets.QVBoxLayout()
+        trigger_input_layout.setSpacing(3)
+
+        input_label = QtWidgets.QLabel("Trigger Value")
+        input_label.setStyleSheet("color: #bbb; font-size: 10px;")
+
+        self.input_box = QtWidgets.QLineEdit()
+        self.input_box.setPlaceholderText('Enter value (1-255)')
+        self.input_box.setText('1')
+        self.input_box.setStyleSheet("""
+            QLineEdit {
+                background-color: #4a4a4a;
+                border: 2px solid #666;
+                border-radius: 6px;
+                padding: 8px 12px;
+                color: white;
+                font-size: 12px;
+                font-weight: bold;
+            }
+            QLineEdit:focus {
+                border-color: #4CAF50;
+                background-color: #525252;
+            }
+            QLineEdit:hover {
+                border-color: #777;
+            }
+        """)
+
+        trigger_input_layout.addWidget(input_label)
+        trigger_input_layout.addWidget(self.input_box)
+        trigger_layout.addLayout(trigger_input_layout)
+
+        # Send trigger button
+        self.trigger_button = QtWidgets.QPushButton('📡 Send Trigger')
+        self.trigger_button.setStyleSheet("""
+            QPushButton {
+                background-color: #4CAF50;
+                color: white;
+                border: none;
+                padding: 12px 20px;
+                border-radius: 6px;
+                font-weight: bold;
+                font-size: 12px;
+            }
+            QPushButton:hover {
+                background-color: #45a049;
+            }
+            QPushButton:pressed {
+                background-color: #3d8b40;
+            }
+            QPushButton:disabled {
+                background-color: #666;
+                color: #999;
+            }
+        """)
+        self.trigger_button.clicked.connect(self.send_trigger_safely)
+        trigger_layout.addWidget(self.trigger_button)
+
+        trigger_container.setLayout(trigger_layout)
+        lsl_layout.addWidget(trigger_container)
+
+        # Separator
+        separator = QtWidgets.QFrame()
+        separator.setFrameShape(QtWidgets.QFrame.HLine)
+        separator.setStyleSheet("color: #666; margin: 5px 0;")
+        lsl_layout.addWidget(separator)
+
+        # Options section
+        options_layout = QtWidgets.QVBoxLayout()
+        options_layout.setSpacing(8)
+
+        options_label = QtWidgets.QLabel("Stream Options")
+        options_label.setStyleSheet("color: white; font-size: 14px; font-weight: bold;")
+        options_layout.addWidget(options_label)
+
+        # Chunk data checkbox
+        self.lsl_chunk_checkbox = QtWidgets.QCheckBox('Enable Data Chunking')
+        self.lsl_chunk_checkbox.setStyleSheet("""
+            QCheckBox {
+                color: white;
+                font-weight: bold;
+                font-size: 12px;
+                padding: 5px;
+            }
+            QCheckBox::indicator {
+                width: 18px;
+                height: 18px;
+            }
+            QCheckBox::indicator:checked {
+                background-color: #2196F3;
+                border: 2px solid #1976D2;
+                border-radius: 3px;
+            }
+            QCheckBox::indicator:unchecked {
+                background-color: #555;
+                border: 2px solid #777;
+                border-radius: 3px;
+            }
+        """)
+        self.lsl_chunk_checkbox.setChecked(True)
+        options_layout.addWidget(self.lsl_chunk_checkbox)
+
+        lsl_layout.addLayout(options_layout)
+
+        # Start/Stop LSL button
+        self.lsl_button = QtWidgets.QPushButton('🚀 Start LSL Stream')
+        self.lsl_button.setStyleSheet("""
+            QPushButton {
+                background-color: #2196F3;
+                color: white;
+                border: none;
+                padding: 12px 20px;
+                border-radius: 6px;
+                font-weight: bold;
+                font-size: 12px;
+                margin-top: 10px;
+            }
+            QPushButton:hover {
+                background-color: #1976D2;
+            }
+            QPushButton:pressed {
+                background-color: #0D47A1;
+            }
+        """)
+        self.lsl_button.clicked.connect(self.toggle_lsl)
         lsl_layout.addWidget(self.lsl_button)
 
-        # Set the layout for the LSL panel
-        lsl_panel.setLayout(lsl_layout)
-        lsl_panel.setMinimumWidth(250)
-        lsl_panel.setMaximumWidth(250)
-        lsl_panel.setMaximumHeight(500)
-        lsl_panel.setStyleSheet("background-color: #43485E; color: white;")
+        lsl_group.setLayout(lsl_layout)
+        main_layout.addWidget(lsl_group)
+        main_layout.addStretch()
+
+        # Set panel properties
+        lsl_panel.setLayout(main_layout)
+        lsl_panel.setMinimumWidth(320)
+        lsl_panel.setMaximumWidth(380)
+        lsl_panel.setStyleSheet("""
+            QWidget {
+                background-color: #2b2b2b;
+                color: white;
+            }
+        """)
 
         return lsl_panel
 
     def create_osc_panel(self):
-        """Create a panel for OSC controls"""
+        """Create a modern panel for OSC controls"""
         osc_panel = QtWidgets.QWidget()
+        main_layout = QtWidgets.QVBoxLayout()
+        main_layout.setSpacing(15)
+        main_layout.setContentsMargins(15, 15, 15, 15)
+
+        # Main OSC group
+        osc_group = QtWidgets.QGroupBox()
+        osc_group.setStyleSheet("""
+            QGroupBox {
+                border: 2px solid #555;
+                border-radius: 8px;
+                margin: 5px;
+                padding: 10px;
+                background-color: #3a3a3a;
+            }
+        """)
         osc_layout = QtWidgets.QVBoxLayout()
 
-        # Create a button to start/stop OSC
+        # Section title
+        osc_controls_label = QtWidgets.QLabel("OSC Communication")
+        osc_controls_label.setStyleSheet("color: white; font-size: 16px; font-weight: bold; margin-bottom: 10px;")
+        osc_controls_label.setAlignment(QtCore.Qt.AlignCenter)
+        osc_layout.addWidget(osc_controls_label)
+
+        # Status indicator
+        self.osc_status = QtWidgets.QLabel("●  OSC: Disconnected")
+        self.osc_status.setStyleSheet("""
+            QLabel {
+                color: #f44336;
+                font-size: 12px;
+                font-weight: bold;
+                padding: 5px;
+                background-color: #2a2a2a;
+                border-radius: 4px;
+            }
+        """)
+        self.osc_status.setAlignment(QtCore.Qt.AlignCenter)
+        osc_layout.addWidget(self.osc_status)
+
+        # Connection settings section
+        connection_container = QtWidgets.QWidget()
+        connection_layout = QtWidgets.QVBoxLayout()
+        connection_layout.setSpacing(10)
+
+        connection_label = QtWidgets.QLabel("Connection Settings")
+        connection_label.setStyleSheet("color: white; font-size: 14px; font-weight: bold;")
+        connection_layout.addWidget(connection_label)
+
+        # OSC Address input
+        address_input_layout = QtWidgets.QVBoxLayout()
+        address_input_layout.setSpacing(3)
+
+        address_label = QtWidgets.QLabel("Target Address")
+        address_label.setStyleSheet("color: #bbb; font-size: 10px;")
+
         self.osc_address_input = QtWidgets.QLineEdit()
-        address_label = QtWidgets.QLabel("OSC Address")
         self.osc_address_input.setText("127.0.0.1")
-        self.osc_address_input.setPlaceholderText("OSC Address")
-        self.osc_address_input.setFixedWidth(150)
-        port_input_label = QtWidgets.QLabel("OSC Listen")
+        self.osc_address_input.setPlaceholderText("IP Address")
+        self.osc_address_input.setStyleSheet("""
+            QLineEdit {
+                background-color: #4a4a4a;
+                border: 2px solid #666;
+                border-radius: 6px;
+                padding: 8px 12px;
+                color: white;
+                font-size: 11px;
+            }
+            QLineEdit:focus {
+                border-color: #FF9800;
+                background-color: #525252;
+            }
+            QLineEdit:hover {
+                border-color: #777;
+            }
+        """)
+
+        address_input_layout.addWidget(address_label)
+        address_input_layout.addWidget(self.osc_address_input)
+        connection_layout.addLayout(address_input_layout)
+
+        # Port settings in a grid layout
+        ports_container = QtWidgets.QWidget()
+        ports_layout = QtWidgets.QHBoxLayout()
+        ports_layout.setSpacing(10)
+
+        # Listen port
+        listen_layout = QtWidgets.QVBoxLayout()
+        listen_layout.setSpacing(3)
+
+        port_input_label = QtWidgets.QLabel("Listen Port")
+        port_input_label.setStyleSheet("color: #bbb; font-size: 10px;")
+
         self.osc_port_input = QtWidgets.QLineEdit()
         self.osc_port_input.setText("8000")
-        self.osc_port_input.setPlaceholderText("OSC Listen Port")
-        port_output_label = QtWidgets.QLabel("OSC Send")
+        self.osc_port_input.setPlaceholderText("8000")
+        self.osc_port_input.setStyleSheet("""
+            QLineEdit {
+                background-color: #4a4a4a;
+                border: 2px solid #666;
+                border-radius: 6px;
+                padding: 8px 8px;
+                color: white;
+                font-size: 11px;
+            }
+            QLineEdit:focus {
+                border-color: #4CAF50;
+            }
+        """)
+
+        listen_layout.addWidget(port_input_label)
+        listen_layout.addWidget(self.osc_port_input)
+
+        # Send port
+        send_layout = QtWidgets.QVBoxLayout()
+        send_layout.setSpacing(3)
+
+        port_output_label = QtWidgets.QLabel("Send Port")
+        port_output_label.setStyleSheet("color: #bbb; font-size: 10px;")
+
         self.osc_port_output = QtWidgets.QLineEdit()
         self.osc_port_output.setText("9000")
-        self.osc_port_output.setPlaceholderText("OSC Send Port")
+        self.osc_port_output.setPlaceholderText("9000")
+        self.osc_port_output.setStyleSheet("""
+            QLineEdit {
+                background-color: #4a4a4a;
+                border: 2px solid #666;
+                border-radius: 6px;
+                padding: 8px 8px;
+                color: white;
+                font-size: 11px;
+            }
+            QLineEdit:focus {
+                border-color: #FF5722;
+            }
+        """)
 
-        self.osc_button = QtWidgets.QPushButton('Start OSC')
-        self.osc_button.setFixedWidth(100)
+        send_layout.addWidget(port_output_label)
+        send_layout.addWidget(self.osc_port_output)
+
+        ports_layout.addLayout(listen_layout)
+        ports_layout.addLayout(send_layout)
+        ports_container.setLayout(ports_layout)
+        connection_layout.addWidget(ports_container)
+
+        connection_container.setLayout(connection_layout)
+        osc_layout.addWidget(connection_container)
+
+        # Connection info display
+        self.osc_info_label = QtWidgets.QLabel("Ready to connect")
+        self.osc_info_label.setStyleSheet("""
+            QLabel {
+                color: #bbb;
+                font-size: 10px;
+                font-style: italic;
+                padding: 5px;
+                background-color: #2a2a2a;
+                border-radius: 3px;
+                margin: 5px 0;
+            }
+        """)
+        self.osc_info_label.setAlignment(QtCore.Qt.AlignCenter)
+        osc_layout.addWidget(self.osc_info_label)
+
+        # Start/Stop OSC button
+        self.osc_button = QtWidgets.QPushButton('🌐 Start OSC Communication')
+        self.osc_button.setStyleSheet("""
+            QPushButton {
+                background-color: #FF9800;
+                color: white;
+                border: none;
+                padding: 12px 20px;
+                border-radius: 6px;
+                font-weight: bold;
+                font-size: 12px;
+                margin-top: 10px;
+            }
+            QPushButton:hover {
+                background-color: #F57C00;
+            }
+            QPushButton:pressed {
+                background-color: #E65100;
+            }
+        """)
         self.osc_button.clicked.connect(self.toggle_osc)
-
-
-        # Add the button to the layout
-        osc_controls_label = QtWidgets.QLabel("OSC Controls")
-        osc_controls_label.setStyleSheet("color: white; font-size: 20px;")
-        osc_layout.addWidget(osc_controls_label)
-        osc_layout.addWidget(address_label)
-        osc_layout.addWidget(self.osc_address_input)
-        osc_layout.addWidget(port_input_label)
-        osc_layout.addWidget(self.osc_port_input)
-        osc_layout.addWidget(port_output_label)
-        osc_layout.addWidget(self.osc_port_output)
         osc_layout.addWidget(self.osc_button)
 
-        # Set the layout for the OSC panel
-        osc_panel.setLayout(osc_layout)
-        osc_panel.setMinimumWidth(250)
-        osc_panel.setMaximumWidth(250)
-        osc_panel.setMaximumHeight(500)
-        osc_panel.setStyleSheet("background-color: #43485E; color: white;")
+        osc_group.setLayout(osc_layout)
+        main_layout.addWidget(osc_group)
+        main_layout.addStretch()
+
+        # Set panel properties
+        osc_panel.setLayout(main_layout)
+        osc_panel.setMinimumWidth(320)
+        osc_panel.setMaximumWidth(380)
+        osc_panel.setStyleSheet("""
+            QWidget {
+                background-color: #2b2b2b;
+                color: white;
+            }
+        """)
 
         return osc_panel
+
+    # Helper methods for improved functionality
+    def send_trigger_safely(self):
+        """Send trigger with validation and feedback"""
+        try:
+            trigger_value = int(self.input_box.text())
+            if 1 <= trigger_value <= 255:
+                self.write_trigger(trigger_value)
+                # Visual feedback
+                original_style = self.trigger_button.styleSheet()
+                self.trigger_button.setStyleSheet(original_style.replace('#4CAF50', '#66BB6A'))
+                QtCore.QTimer.singleShot(200, lambda: self.trigger_button.setStyleSheet(original_style))
+            else:
+                self.show_trigger_error("Trigger value must be between 1-255")
+        except ValueError:
+            self.show_trigger_error("Please enter a valid number")
+
+    def show_trigger_error(self, message):
+        """Show trigger input error"""
+        original_style = self.input_box.styleSheet()
+        error_style = original_style.replace('#666', '#f44336').replace('#4CAF50', '#f44336')
+        self.input_box.setStyleSheet(error_style)
+        self.input_box.setPlaceholderText(message)
+        QtCore.QTimer.singleShot(2000, lambda: [
+            self.input_box.setStyleSheet(original_style),
+            self.input_box.setPlaceholderText('Enter value (1-255)')
+        ])
+
+    def update_lsl_status(self, connected=False):
+        """Update LSL status indicator"""
+        if hasattr(self, 'lsl_status'):
+            if connected:
+                self.lsl_status.setText("●  LSL: Connected")
+                self.lsl_status.setStyleSheet("""
+                    QLabel {
+                        color: #4CAF50;
+                        font-size: 12px;
+                        font-weight: bold;
+                        padding: 5px;
+                        background-color: #2a2a2a;
+                        border-radius: 4px;
+                    }
+                """)
+                self.lsl_button.setText('🛑 Stop LSL Stream')
+                self.trigger_button.setEnabled(True)
+            else:
+                self.lsl_status.setText("●  LSL: Stopped")
+                self.lsl_status.setStyleSheet("""
+                    QLabel {
+                        color: #f44336;
+                        font-size: 12px;
+                        font-weight: bold;
+                        padding: 5px;
+                        background-color: #2a2a2a;
+                        border-radius: 4px;
+                    }
+                """)
+                self.lsl_button.setText('🚀 Start LSL Stream')
+                self.trigger_button.setEnabled(False)
+
+    def update_osc_status(self, connected=False, address="", listen_port="", send_port=""):
+        """Update OSC status indicator"""
+        if hasattr(self, 'osc_status'):
+            if connected:
+                self.osc_status.setText("●  OSC: Connected")
+                self.osc_status.setStyleSheet("""
+                    QLabel {
+                        color: #4CAF50;
+                        font-size: 12px;
+                        font-weight: bold;
+                        padding: 5px;
+                        background-color: #2a2a2a;
+                        border-radius: 4px;
+                    }
+                """)
+                self.osc_button.setText('🛑 Stop OSC Communication')
+                self.osc_info_label.setText(f"Connected: {address}:{listen_port} ⇄ {send_port}")
+
+                # Disable inputs when connected
+                self.osc_address_input.setEnabled(False)
+                self.osc_port_input.setEnabled(False)
+                self.osc_port_output.setEnabled(False)
+            else:
+                self.osc_status.setText("●  OSC: Disconnected")
+                self.osc_status.setStyleSheet("""
+                    QLabel {
+                        color: #f44336;
+                        font-size: 12px;
+                        font-weight: bold;
+                        padding: 5px;
+                        background-color: #2a2a2a;
+                        border-radius: 4px;
+                    }
+                """)
+                self.osc_button.setText('🌐 Start OSC Communication')
+                self.osc_info_label.setText("Ready to connect")
+
+                # Enable inputs when disconnected
+                self.osc_address_input.setEnabled(True)
+                self.osc_port_input.setEnabled(True)
+                self.osc_port_output.setEnabled(True)
+
+    # Update your existing toggle methods to use the new status updates
+    def toggle_lsl(self):
+        """Toggle LSL streaming on and off with visual feedback"""
+        if self.lsl_state:
+            self.lsl_thread.quit()
+            self.update_lsl_status(connected=False)
+            self.lsl_state = False
+        else:
+            self.lsl_thread.start()
+            self.update_lsl_status(connected=True)
+            self.lsl_state = True
+
+    def toggle_osc(self):
+        """Toggle OSC communication with visual feedback"""
+        if not self.osc_state:
+            listen_port = int(self.osc_port_input.text())
+            send_port = int(self.osc_port_output.text())
+            address = self.osc_address_input.text()
+
+            self.osc_thread = OscStreamThread(listen_port=listen_port, send_port=send_port)
+            self.osc_thread.message_received.connect(lambda addr, args: print(f"Received {addr}: {args}"))
+            self.osc_thread.start()
+
+            self.update_osc_status(connected=True, address=address,
+                                   listen_port=str(listen_port), send_port=str(send_port))
+            self.osc_state = True
+        else:
+            if self.osc_thread:
+                self.osc_thread.stop()
+                self.osc_thread = None
+            self.update_osc_status(connected=False)
+            self.osc_state = False
 
     def create_parameters_panel(self):
         """Create buttons to interact with the neuroengine - Modern styled version"""
@@ -786,33 +1238,6 @@ class StreamerGUI:
                 """)
                 self.roc_button.setEnabled(False)
                 self.confusion_button.setEnabled(False)
-
-    def toggle_osc(self):
-        if not self.osc_state:
-            listen_port = int(self.osc_port_input.text())
-            send_port = int(self.osc_port_output.text())
-            self.osc_thread = OscStreamThread(listen_port=listen_port, send_port=send_port)
-            self.osc_thread.message_received.connect(lambda addr, args: print(f"Received {addr}: {args}"))
-            self.osc_thread.start()
-
-            self.osc_button.setText('Stop OSC')
-            self.osc_state = True
-        else:
-            self.osc_thread.stop()
-            self.osc_thread = None
-            self.osc_button.setText('Start OSC')
-            self.osc_state = False
-
-    def toggle_lsl(self):
-        """Toggle LSL streaming on and off."""
-        if self.lsl_state:
-            self.lsl_thread.quit()
-            self.lsl_button.setText('Start LSL')
-            self.lsl_state = False
-        else:
-            self.lsl_thread.start()
-            self.lsl_button.setText('Stop LSL')
-            self.lsl_state = True
 
     def create_frequency_band_panel(self):
         # Define the constraints for each band

@@ -363,7 +363,7 @@ class FrequencyBandPanel(QtWidgets.QWidget):
         # Control buttons
         button_layout = QHBoxLayout()
 
-        reset_button = QtWidgets.QPushButton("Reset to Full Range")
+        reset_button = QtWidgets.QPushButton("Reset")
         reset_button.clicked.connect(self.reset_to_full_range)
         reset_button.setStyleSheet("""
             QPushButton {
