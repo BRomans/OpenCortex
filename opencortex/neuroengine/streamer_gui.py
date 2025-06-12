@@ -179,7 +179,7 @@ class StreamerGUI:
         # Create a layout for the main window
         self.main_layout = QtWidgets.QGridLayout()
         self.main_layout.addWidget(plot, 0, 0)
-        self.main_layout.addWidget(bottom_panel_widget, 1, 0, alignment=QtCore.Qt.AlignCenter)
+        self.main_layout.addWidget(bottom_panel_widget, 1, 0, alignment=QtCore.Qt.AlignLeft)
         self.main_layout.addWidget(side_panel_widget,0,1, alignment=QtCore.Qt.AlignCenter)
 
         # Set the main layout for the window
@@ -1613,3 +1613,4 @@ class StreamerGUI:
         # Update your band power extractor
         if hasattr(self, 'pipeline'):
             self.pipeline.band_power.update_frequency_bands(freq_bands)
+
