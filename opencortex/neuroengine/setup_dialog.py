@@ -79,7 +79,7 @@ class SetupDialog(QtWidgets.QDialog):
 
         # Create a textbox to select configuration file
         self.config_file_list = QtWidgets.QComboBox(self)
-        config_files = os.listdir('opencortex/config')
+        config_files = os.listdir('config')
         config_files = [f for f in config_files if f.endswith('.yaml')]
         self.config_file_list.addItems(config_files)
         layout.addWidget(QtWidgets.QLabel('Select Configuration'))

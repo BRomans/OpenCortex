@@ -53,7 +53,7 @@ class StreamerGUI:
         with open(config_file, 'r') as file:
             config = yaml.safe_load(file)
 
-        # ============ NEW SERVICE-BASED APPROACH ============
+        time.sleep(window_size)  # Wait for the board to be ready
 
         # 1. Create and start StreamEngine service
         self.stream_engine = StreamEngine(board, config, window_size)
@@ -87,7 +87,7 @@ class StreamerGUI:
         self.update_buffer_speed_ms = config.get('update_buffer_speed_ms', 1000)
         self.update_plot_speed_ms = config.get('update_plot_speed_ms', 1000 / self.window_size)
 
-        time.sleep(self.window_size)  # Wait for the board to be ready
+
         self.is_streaming = True
         self.inference_mode = False
         self.first_prediction = True
