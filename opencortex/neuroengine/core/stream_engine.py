@@ -215,14 +215,14 @@ class StreamEngine:
             quality_scores = outputs["quality"]
 
             # Push to LSL streams
-            push_lsl_band_powers(self.band_powers_outlet, band_powers.to_numpy(), ts)
+            #push_lsl_band_powers(self.band_powers_outlet, band_powers, ts)
             push_lsl_quality(self.quality_outlet, quality_scores)
             push_lsl_raw_eeg(self.eeg_outlet, self.filtered_eeg, start_eeg, end_eeg, 0, ts, True)  # chunk_data=True
 
             # Create data packet for interfaces
             stream_data = StreamData(raw_eeg=self.raw_data.copy(),
                                      filtered_eeg=self.filtered_eeg.copy(),
-                                     band_powers=band_powers.to_numpy(),
+                                     band_powers=band_powers,
                                      quality_scores=quality_scores,
                                      timestamp=time.time(),
                                      trigger=int(trigger[-1]) if len(trigger) > 0 else 0)

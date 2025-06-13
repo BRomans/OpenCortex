@@ -31,8 +31,6 @@ from brainflow.data_filter import DataFilter, FilterTypes, DetrendOperations
 from concurrent.futures import ThreadPoolExecutor
 
 from opencortex.neuroengine.network.osc_stream import OscStreamThread
-from opencortex.processing.preprocessing import extract_band_powers
-from opencortex.processing.proc_helper import freq_bands
 from opencortex.utils.layouts import layouts
 
 colors = ["blue", "green", "yellow", "purple", "orange", "pink", "brown", "gray",
@@ -135,7 +133,7 @@ class StreamerGUI:
         logging.debug(f"Prediction interval in datapoints: {self.prediction_datapoints}")
 
         self.pipeline = Parallel(
-            band_power=BandPowerExtractor(fs=self.sampling_rate, ch_names=self.eeg_channels),
+            band_power=BandPowerExtractor(fs=self.sampling_rate, ch_names=self.eeg_channels, average=True),
             quality=QualityEstimator(quality_thresholds=self.quality_thresholds)
         )
 
@@ -162,6 +160,7 @@ class StreamerGUI:
 
         self.freq_band_panel = FrequencyBandPanel()
         self.freq_band_panel.bandsChanged.connect(self.on_frequency_bands_changed)
+        self.freq_band_panel.averageChanged.connect(self.on_average_frequency_bands_changed)
 
         side_panel_widget = QtWidgets.QWidget()
         side_panel_layout = QtWidgets.QVBoxLayout()
@@ -1288,13 +1287,13 @@ class StreamerGUI:
             outputs = self.pipeline(self.filtered_eeg[0:len(self.eeg_channels)])
             band_powers = outputs["band_power"]
             quality_scores = outputs["quality"]
-
-            push_lsl_band_powers(self.band_powers_outlet, band_powers.to_numpy(), ts)
+            band_powers_array = [band_powers[band] for band in band_powers.keys()]
+            #push_lsl_band_powers(self.band_powers_outlet, band_powers_array, ts, band_powers.keys())
             push_lsl_quality(self.quality_outlet, quality_scores)
             push_lsl_raw_eeg(self.eeg_outlet, self.filtered_eeg, start_eeg, end_eeg, self.chunk_counter, ts,
                              self.lsl_chunk_checkbox.isChecked())
             # Send a test message
-            if self.osc_thread: self.osc_thread.send_message(self.osc_address_input.text(), band_powers.to_numpy().tolist())
+            if self.osc_thread: self.osc_thread.send_message(self.osc_address_input.text(), band_powers)
         except Exception as e:
             logging.error(f"Error pushing data to LSL: {e}")
         self.app.processEvents()
@@ -1612,5 +1611,21 @@ class StreamerGUI:
 
         # Update your band power extractor
         if hasattr(self, 'pipeline'):
-            self.pipeline.band_power.update_frequency_bands(freq_bands)
+            # Access the band_power component via the branches dictionary
+            if 'band_power' in self.pipeline.branches:
+                self.pipeline.branches['band_power'].update_frequency_bands(freq_bands)
+            else:
+                logging.warning("band_power component not found in pipeline branches")
+
+    def on_average_frequency_bands_changed(self, average):
+        """Handle average frequency bands changes"""
+        logging.debug(f"Average frequency bands changed: {'Enabled' if average else 'Disabled'}")
+
+        # Update your band power extractor
+        if hasattr(self, 'pipeline'):
+            # Access the band_power component via the branches dictionary
+            if 'band_power' in self.pipeline.branches:
+                self.pipeline.branches['band_power'].update_average(average)
+            else:
+                logging.warning("band_power component not found in pipeline branches")
 
