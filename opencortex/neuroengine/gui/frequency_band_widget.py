@@ -287,6 +287,7 @@ class FrequencyBandPanel(QtWidgets.QWidget):
     """
 
     bandsChanged = pyqtSignal(dict)  # Emits the complete freq_bands dictionary
+    averageChanged = pyqtSignal(bool)  # Emits the average state
 
     def __init__(self, band_constraints=None):
         super().__init__()
@@ -298,12 +299,12 @@ class FrequencyBandPanel(QtWidgets.QWidget):
                 'theta': (4, 8),
                 'alpha': (8, 12),
                 'beta': (12, 30),
-                'gamma': (30, 50)
+                'gamma': (30, 80)
             }
 
         self.band_constraints = band_constraints
         self.band_widgets = {}
-
+        self.average = False
         self.setupUI()
 
     def setupUI(self):
@@ -315,6 +316,34 @@ class FrequencyBandPanel(QtWidgets.QWidget):
         title.setStyleSheet("color: white; font-size: 18px; font-weight: bold; margin-bottom: 10px;")
         title.setAlignment(QtCore.Qt.AlignCenter)
         layout.addWidget(title)
+
+        # Average value checkbox
+        self.average_checkbox = QCheckBox("Average Frequency Values")
+        self.average_checkbox.setChecked(self.average)
+        self.average_checkbox.setStyleSheet("""
+            QCheckBox {
+                color: white;
+                font-size: 14px;
+                font-weight: bold;
+            }
+            QCheckBox::indicator {
+                width: 18px;
+                height: 18px;
+            }
+            QCheckBox::indicator:checked {
+                background-color: #4CAF50;
+                border: 2px solid #45a049;
+                border-radius: 3px;
+            }
+            QCheckBox::indicator:unchecked {
+                background-color: #555;
+                border: 2px solid #777;
+                border-radius: 3px;
+            }
+        """)
+
+        self.average_checkbox.stateChanged.connect(self.on_average_changed)
+        layout.addWidget(self.average_checkbox)
 
         # Scroll area for bands
         scroll_area = QtWidgets.QScrollArea()
@@ -445,6 +474,17 @@ class FrequencyBandPanel(QtWidgets.QWidget):
         # Emit the complete configuration
         self.bandsChanged.emit(self.get_frequency_bands())
 
+    def on_average_changed(self, state):
+        """Handle average checkbox state change"""
+        self.average = state == QtCore.Qt.Checked
+        if self.average:
+            self.status_label.setText("Average Frequency Values Enabled")
+        else:
+            self.status_label.setText("Average Frequency Values Disabled")
+
+        # Emit the complete configuration
+        self.averageChanged.emit(self.average)
+
     def get_frequency_bands(self):
         """Get the current frequency bands configuration"""
         freq_bands = {}
@@ -532,6 +572,7 @@ class FrequencyBandDemo(QtWidgets.QMainWindow):
 
         self.freq_panel = FrequencyBandPanel(band_constraints)
         self.freq_panel.bandsChanged.connect(self.on_bands_changed)
+        self.freq_panel.averageChanged.connect(self.on_average_changed)
 
         # Create output display
         self.output_display = QtWidgets.QTextEdit()
@@ -561,6 +602,18 @@ class FrequencyBandDemo(QtWidgets.QMainWindow):
     def on_bands_changed(self, freq_bands):
         """Handle frequency bands changes"""
         self.update_output_display(freq_bands)
+
+    def on_average_changed(self, average):
+        """Handle average checkbox state change"""
+        # Update display with current configuration
+        freq_bands = self.freq_panel.get_frequency_bands()
+        self.update_output_display(freq_bands)
+        if average:
+            self.output_display.append("Average Frequency Values Enabled")
+        else:
+            self.output_display.append("Average Frequency Values Disabled")
+
+
 
     def update_output_display(self, freq_bands):
         """Update the output display with current configuration"""
