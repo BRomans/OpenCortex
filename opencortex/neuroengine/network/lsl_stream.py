@@ -223,7 +223,7 @@ def push_lsl_raw_eeg(outlet: StreamOutlet, data, start_eeg, end_eeg, counter, ts
         logging.error(f"Error pushing chunk to LSL: {e}")
 
 
-def push_lsl_band_powers(outlet: StreamOutlet, band_powers, timestamp):
+def push_lsl_band_powers(outlet: StreamOutlet, band_powers, timestamp, freq_bands=freq_bands.keys()):
     """
     Push the power bands to the LSL stream
     :param outlet: StreamOutlet object
@@ -231,9 +231,9 @@ def push_lsl_band_powers(outlet: StreamOutlet, band_powers, timestamp):
     :param timestamp: float, timestamp value
     """
     try:
-        outlet.push_chunk(band_powers.tolist(), timestamp)
+        outlet.push_chunk(band_powers, timestamp)
         logging.debug(
-            f"Pushed band powers {' '.join(list(freq_bands.keys()))} to LSL stream {outlet.get_info().name()}")
+            f"Pushed band powers {' '.join(list(freq_bands))} to LSL stream {outlet.get_info().name()}")
     except Exception as e:
         logging.error(f"Error pushing band powers to LSL: {e}")
 

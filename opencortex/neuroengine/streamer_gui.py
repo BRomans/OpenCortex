@@ -16,15 +16,21 @@ import os
 import yaml
 from PyQt5 import QtWidgets, QtCore
 from opencortex.neuroengine.classifier import Classifier
-from opencortex.neuroengine.lsl.lsl_stream import LSLStreamThread, start_lsl_eeg_stream, start_lsl_power_bands_stream, \
+from opencortex.neuroengine.core.stream_engine import StreamEngine
+from opencortex.neuroengine.flux.base import Parallel
+from opencortex.neuroengine.flux.band_power import BandPowerExtractor
+from opencortex.neuroengine.flux.quality_estimator import QualityEstimator
+from opencortex.neuroengine.gui.frequency_band_widget import FrequencyBandPanel
+from opencortex.neuroengine.gui.gui_adapter import GUIAdapter
+from opencortex.neuroengine.network.lsl_stream import LSLStreamThread, start_lsl_eeg_stream, start_lsl_power_bands_stream, \
     start_lsl_inference_stream, start_lsl_quality_stream, push_lsl_raw_eeg, push_lsl_band_powers, push_lsl_inference, \
     push_lsl_quality
 from pyqtgraph import ScatterPlotItem, mkBrush
 from brainflow.board_shim import BoardShim
 from brainflow.data_filter import DataFilter, FilterTypes, DetrendOperations
 from concurrent.futures import ThreadPoolExecutor
-from opencortex.processing.preprocessing import extract_band_powers
-from opencortex.processing.proc_helper import freq_bands
+
+from opencortex.neuroengine.network.osc_stream import OscStreamThread
 from opencortex.utils.layouts import layouts
 
 colors = ["blue", "green", "yellow", "purple", "orange", "pink", "brown", "gray",
@@ -46,6 +52,24 @@ class StreamerGUI:
         with open(config_file, 'r') as file:
             config = yaml.safe_load(file)
 
+        time.sleep(window_size)  # Wait for the board to be ready
+
+        # 1. Create and start StreamEngine service
+        self.stream_engine = StreamEngine(board, config, window_size)
+        self.stream_engine.start()  # Start the service
+
+        # 2. Create GUI adapter
+        self.gui_adapter = GUIAdapter(self.stream_engine)
+
+        # 3. Connect adapter signals to GUI methods
+        self.gui_adapter.data_updated.connect(self.on_data_updated)
+        self.gui_adapter.quality_updated.connect(self.on_quality_updated)
+        self.gui_adapter.prediction_ready.connect(self.on_prediction_ready)
+        self.gui_adapter.classifier_ready.connect(self.on_classifier_ready)
+        self.gui_adapter.error_occurred.connect(self.on_error)
+        self.gui_adapter.inference_mode_changed.connect(self.on_inference_mode_changed)
+
+
         self.window_size = window_size
         # Apply configuration
         self.plot = config.get('plot', True)
@@ -62,10 +86,13 @@ class StreamerGUI:
         self.update_buffer_speed_ms = config.get('update_buffer_speed_ms', 1000)
         self.update_plot_speed_ms = config.get('update_plot_speed_ms', 1000 / self.window_size)
 
-        time.sleep(self.window_size)  # Wait for the board to be ready
+
         self.is_streaming = True
         self.inference_mode = False
         self.first_prediction = True
+        self.lsl_state = True
+        self.osc_state = False
+        self.osc_thread = None
         self.params = params
         self.initial_ts = time.time()
         logging.info("Searching for devices...")
@@ -105,6 +132,11 @@ class StreamerGUI:
             self.slicing_trigger = self.nclasses
         logging.debug(f"Prediction interval in datapoints: {self.prediction_datapoints}")
 
+        self.pipeline = Parallel(
+            band_power=BandPowerExtractor(fs=self.sampling_rate, ch_names=self.eeg_channels, average=True),
+            quality=QualityEstimator(quality_thresholds=self.quality_thresholds)
+        )
+
         # Connect to the LSL stream threads
         self.prediction_timer = QtCore.QTimer()
         self.prediction_timer.timeout.connect(self.get_prediction_data)
@@ -116,16 +148,38 @@ class StreamerGUI:
         self.lsl_thread.stop_predicting.connect(self.set_inference_mode)
         self.lsl_thread.start()
 
+
+
         self.win = pg.GraphicsLayoutWidget(title='OpenCortex Streamer', size=(1920, 1080))
         self.win.setWindowTitle('OpenCortex Streamer')
         self.win.show()
-        panel = self.create_parameters_panel()
+        lsl_panel = self.create_lsl_panel()
+        processing_panel = self.create_parameters_panel()
+        osc_panel = self.create_osc_panel()
         plot = self.init_plot()
+
+        self.freq_band_panel = FrequencyBandPanel()
+        self.freq_band_panel.bandsChanged.connect(self.on_frequency_bands_changed)
+        self.freq_band_panel.averageChanged.connect(self.on_average_frequency_bands_changed)
+
+        side_panel_widget = QtWidgets.QWidget()
+        side_panel_layout = QtWidgets.QVBoxLayout()
+        side_panel_layout.addWidget(processing_panel)
+        side_panel_widget.setLayout(side_panel_layout)
+
+        bottom_panel_widget = QtWidgets.QWidget()
+        bottom_panel_layout = QtWidgets.QHBoxLayout()
+        bottom_panel_layout.addWidget(lsl_panel)
+        bottom_panel_layout.addWidget(osc_panel)
+        bottom_panel_layout.addWidget(self.freq_band_panel)
+        bottom_panel_widget.setLayout(bottom_panel_layout)
+
 
         # Create a layout for the main window
         self.main_layout = QtWidgets.QGridLayout()
         self.main_layout.addWidget(plot, 0, 0)
-        self.main_layout.addWidget(panel, 0, 1, alignment=QtCore.Qt.AlignBottom)
+        self.main_layout.addWidget(bottom_panel_widget, 1, 0, alignment=QtCore.Qt.AlignLeft)
+        self.main_layout.addWidget(side_panel_widget,0,1, alignment=QtCore.Qt.AlignCenter)
 
         # Set the main layout for the window
         self.win.setLayout(self.main_layout)
@@ -154,125 +208,1050 @@ class StreamerGUI:
 
         self.app.exec_()
 
-    def create_parameters_panel(self):
-        """Create buttons to interact with the neuroengine"""
+    def create_lsl_panel(self):
+        """Create a modern panel for LSL controls"""
+        lsl_panel = QtWidgets.QWidget()
+        main_layout = QtWidgets.QVBoxLayout()
+        main_layout.setSpacing(15)
+        main_layout.setContentsMargins(15, 15, 15, 15)
 
-        # Button to write trigger and input box to specify the trigger value
+        # Main LSL group
+        lsl_group = QtWidgets.QGroupBox()
+        lsl_group.setStyleSheet("""
+            QGroupBox {
+                border: 2px solid #555;
+                border-radius: 8px;
+                margin: 5px;
+                padding: 10px;
+                background-color: #3a3a3a;
+            }
+        """)
+        lsl_layout = QtWidgets.QVBoxLayout()
+
+        # Section title
+        lsl_controls_label = QtWidgets.QLabel("LSL Stream Controls")
+        lsl_controls_label.setStyleSheet("color: white; font-size: 16px; font-weight: bold; margin-bottom: 10px;")
+        lsl_controls_label.setAlignment(QtCore.Qt.AlignCenter)
+        lsl_layout.addWidget(lsl_controls_label)
+
+        # Status indicator
+        self.lsl_status = QtWidgets.QLabel("●  LSL: Stopped")
+        self.lsl_status.setStyleSheet("""
+            QLabel {
+                color: #f44336;
+                font-size: 12px;
+                font-weight: bold;
+                padding: 5px;
+                background-color: #2a2a2a;
+                border-radius: 4px;
+            }
+        """)
+        self.lsl_status.setAlignment(QtCore.Qt.AlignCenter)
+        lsl_layout.addWidget(self.lsl_status)
+
+        # Trigger section
+        trigger_container = QtWidgets.QWidget()
+        trigger_layout = QtWidgets.QVBoxLayout()
+        trigger_layout.setSpacing(8)
+
+        trigger_label = QtWidgets.QLabel("Trigger Control")
+        trigger_label.setStyleSheet("color: white; font-size: 14px; font-weight: bold;")
+        trigger_layout.addWidget(trigger_label)
+
+        # Trigger input with label
+        trigger_input_layout = QtWidgets.QVBoxLayout()
+        trigger_input_layout.setSpacing(3)
+
+        input_label = QtWidgets.QLabel("Trigger Value")
+        input_label.setStyleSheet("color: #bbb; font-size: 10px;")
+
         self.input_box = QtWidgets.QLineEdit()
-        self.input_box.setFixedWidth(100)  # Set a fixed width for the input box
-        self.input_box.setPlaceholderText('Trigger value')
+        self.input_box.setPlaceholderText('Enter value (1-255)')
         self.input_box.setText('1')
+        self.input_box.setStyleSheet("""
+            QLineEdit {
+                background-color: #4a4a4a;
+                border: 2px solid #666;
+                border-radius: 6px;
+                padding: 8px 12px;
+                color: white;
+                font-size: 12px;
+                font-weight: bold;
+            }
+            QLineEdit:focus {
+                border-color: #4CAF50;
+                background-color: #525252;
+            }
+            QLineEdit:hover {
+                border-color: #777;
+            }
+        """)
 
-        self.trigger_button = QtWidgets.QPushButton('Send Trigger')
-        self.trigger_button.setFixedWidth(100)  # Set a fixed width for the button
-        self.trigger_button.clicked.connect(lambda: self.write_trigger(int(self.input_box.text())))
+        trigger_input_layout.addWidget(input_label)
+        trigger_input_layout.addWidget(self.input_box)
+        trigger_layout.addLayout(trigger_input_layout)
 
-        # Start / Stop buttons
-        self.start_button = QtWidgets.QPushButton('Stop Plot')
-        self.start_button.setFixedWidth(100)
-        self.start_button.clicked.connect(lambda: self.toggle_plot())
+        # Send trigger button
+        self.trigger_button = QtWidgets.QPushButton('📡 Send Trigger')
+        self.trigger_button.setStyleSheet("""
+            QPushButton {
+                background-color: #4CAF50;
+                color: white;
+                border: none;
+                padding: 12px 20px;
+                border-radius: 6px;
+                font-weight: bold;
+                font-size: 12px;
+            }
+            QPushButton:hover {
+                background-color: #45a049;
+            }
+            QPushButton:pressed {
+                background-color: #3d8b40;
+            }
+            QPushButton:disabled {
+                background-color: #666;
+                color: #999;
+            }
+        """)
+        self.trigger_button.clicked.connect(self.send_trigger_safely)
+        trigger_layout.addWidget(self.trigger_button)
 
-        # Buttons to plot ROC curve and confusion matrix
-        self.roc_button = QtWidgets.QPushButton('Plot ROC')
-        self.roc_button.setFixedWidth(100)
-        self.roc_button.clicked.connect(lambda: self.classifier.plot_roc_curve())
+        trigger_container.setLayout(trigger_layout)
+        lsl_layout.addWidget(trigger_container)
 
-        self.confusion_button = QtWidgets.QPushButton('Plot CM')
-        self.confusion_button.setFixedWidth(100)
-        self.confusion_button.clicked.connect(lambda: self.classifier.plot_confusion_matrix())
+        # Separator
+        separator = QtWidgets.QFrame()
+        separator.setFrameShape(QtWidgets.QFrame.HLine)
+        separator.setStyleSheet("color: #666; margin: 5px 0;")
+        lsl_layout.addWidget(separator)
 
-        # Save data checkbox
-        self.save_data_checkbox = QtWidgets.QCheckBox('Save to CSV')
-        self.save_data_checkbox.setStyleSheet('color: white')
-        self.save_data_checkbox.setChecked(self.save_data)
+        # Options section
+        options_layout = QtWidgets.QVBoxLayout()
+        options_layout.setSpacing(8)
 
-        # Input box to configure Bandpass filter with checkbox to enable/disable it
-        self.bandpass_checkbox = QtWidgets.QCheckBox('Bandpass (Hz)')
-        self.bandpass_checkbox.setStyleSheet('color: white')
-        self.bandpass_box_low = QtWidgets.QLineEdit()
-        self.bandpass_box_low.setPlaceholderText('0')
-        self.bandpass_box_low.setText('1')
-        self.bandpass_box_low.setMaximumWidth(30)
-        self.bandpass_box_high = QtWidgets.QLineEdit()
-        self.bandpass_box_high.setPlaceholderText('0')
-        self.bandpass_box_high.setText('40')
-        self.bandpass_box_high.setMaximumWidth(30)
+        options_label = QtWidgets.QLabel("Stream Options")
+        options_label.setStyleSheet("color: white; font-size: 14px; font-weight: bold;")
+        options_layout.addWidget(options_label)
 
-        # Input box to configure Notch filter with checkbox to enable/disable it and white label
-        self.notch_checkbox = QtWidgets.QCheckBox('Notch (Hz)')
-        self.notch_checkbox.setStyleSheet('color: white')
-        self.notch_box = QtWidgets.QLineEdit()
-        self.notch_box.setMaximumWidth(60)  # Set a fixed width for the input box
-        self.notch_box.setPlaceholderText('0, 0')
-        self.notch_box.setText('50, 60')
-
-        self.lsl_chunk_checkbox = QtWidgets.QCheckBox('Chunk data')
-        self.lsl_chunk_checkbox.setStyleSheet('color: white')
+        # Chunk data checkbox
+        self.lsl_chunk_checkbox = QtWidgets.QCheckBox('Enable Data Chunking')
+        self.lsl_chunk_checkbox.setStyleSheet("""
+            QCheckBox {
+                color: white;
+                font-weight: bold;
+                font-size: 12px;
+                padding: 5px;
+            }
+            QCheckBox::indicator {
+                width: 18px;
+                height: 18px;
+            }
+            QCheckBox::indicator:checked {
+                background-color: #2196F3;
+                border: 2px solid #1976D2;
+                border-radius: 3px;
+            }
+            QCheckBox::indicator:unchecked {
+                background-color: #555;
+                border: 2px solid #777;
+                border-radius: 3px;
+            }
+        """)
         self.lsl_chunk_checkbox.setChecked(True)
+        options_layout.addWidget(self.lsl_chunk_checkbox)
 
-        # Create a layout for buttons
-        start_save_layout = QtWidgets.QVBoxLayout()
-        start_save_layout.addWidget(self.save_data_checkbox)
-        start_save_layout.addWidget(self.start_button)
+        lsl_layout.addLayout(options_layout)
 
-        # Create a layout for the bandpass filter
-        bandpass_layout = QtWidgets.QHBoxLayout()
-        bandpass_layout.addWidget(self.bandpass_checkbox)
-        bandpass_layout.addWidget(self.bandpass_box_low)
-        bandpass_layout.addWidget(self.bandpass_box_high)
+        # Start/Stop LSL button
+        self.lsl_button = QtWidgets.QPushButton('🚀 Start LSL Stream')
+        self.lsl_button.setStyleSheet("""
+            QPushButton {
+                background-color: #2196F3;
+                color: white;
+                border: none;
+                padding: 12px 20px;
+                border-radius: 6px;
+                font-weight: bold;
+                font-size: 12px;
+                margin-top: 10px;
+            }
+            QPushButton:hover {
+                background-color: #1976D2;
+            }
+            QPushButton:pressed {
+                background-color: #0D47A1;
+            }
+        """)
+        self.lsl_button.clicked.connect(self.toggle_lsl)
+        lsl_layout.addWidget(self.lsl_button)
 
-        # Create a layout for the notch filter
-        notch_layout = QtWidgets.QHBoxLayout()
-        notch_layout.addWidget(self.notch_checkbox)
-        notch_layout.addWidget(self.notch_box)
+        lsl_group.setLayout(lsl_layout)
+        main_layout.addWidget(lsl_group)
+        main_layout.addStretch()
 
-        # Create a layout for LSL options
-        eeg_options_label = QtWidgets.QLabel("EEG Options")
-        eeg_options_label.setStyleSheet("color: white; font-size: 20px;")
-        eeg_params_layout = QtWidgets.QVBoxLayout()
-        eeg_params_layout.addWidget(self.lsl_chunk_checkbox)
-        eeg_params_layout.addLayout(start_save_layout)
+        # Set panel properties
+        lsl_panel.setLayout(main_layout)
+        lsl_panel.setMinimumWidth(320)
+        lsl_panel.setMaximumWidth(380)
+        lsl_panel.setStyleSheet("""
+            QWidget {
+                background-color: #2b2b2b;
+                color: white;
+            }
+        """)
 
-        # Create a vertical layout to contain the notch filter and the button layout
-        filters_label = QtWidgets.QLabel("Filters")
-        filters_label.setStyleSheet("color: white; font-size: 20px;")
-        filter_params_layout = QtWidgets.QVBoxLayout()
-        filter_params_layout.addLayout(bandpass_layout)
-        filter_params_layout.addLayout(notch_layout)
+        return lsl_panel
 
-        # Create a center layout for trigger button
-        markers_label = QtWidgets.QLabel("Markers")
-        markers_label.setStyleSheet("color: white; size: 20px;")
-        markers_params_layout = QtWidgets.QVBoxLayout()
-        markers_params_layout.addWidget(self.input_box)
-        markers_params_layout.addWidget(self.trigger_button)
+    def create_osc_panel(self):
+        """Create a modern panel for OSC controls"""
+        osc_panel = QtWidgets.QWidget()
+        main_layout = QtWidgets.QVBoxLayout()
+        main_layout.setSpacing(15)
+        main_layout.setContentsMargins(15, 15, 15, 15)
 
-        # Create a layout for classifier plots
-        model_label = QtWidgets.QLabel("Classifier")
-        model_label.setStyleSheet("color: white; font-size: 20px;")
-        model_params_layout = QtWidgets.QHBoxLayout()
-        model_params_layout.addWidget(self.roc_button)
-        model_params_layout.addWidget(self.confusion_button)
+        # Main OSC group
+        osc_group = QtWidgets.QGroupBox()
+        osc_group.setStyleSheet("""
+            QGroupBox {
+                border: 2px solid #555;
+                border-radius: 8px;
+                margin: 5px;
+                padding: 10px;
+                background-color: #3a3a3a;
+            }
+        """)
+        osc_layout = QtWidgets.QVBoxLayout()
 
-        # Horizontal layout to contain the classifier buttons
-        vertical_container = QtWidgets.QVBoxLayout()
-        vertical_container.addWidget(eeg_options_label)
-        vertical_container.addLayout(eeg_params_layout)
-        vertical_container.addWidget(markers_label)
-        vertical_container.addLayout(markers_params_layout)
-        vertical_container.addWidget(filters_label)
-        vertical_container.addLayout(filter_params_layout)
-        vertical_container.addWidget(model_label)
-        vertical_container.addLayout(model_params_layout)
+        # Section title
+        osc_controls_label = QtWidgets.QLabel("OSC Communication")
+        osc_controls_label.setStyleSheet("color: white; font-size: 16px; font-weight: bold; margin-bottom: 10px;")
+        osc_controls_label.setAlignment(QtCore.Qt.AlignCenter)
+        osc_layout.addWidget(osc_controls_label)
 
-        # Create a widget to contain the layout
+        # Status indicator
+        self.osc_status = QtWidgets.QLabel("●  OSC: Disconnected")
+        self.osc_status.setStyleSheet("""
+            QLabel {
+                color: #f44336;
+                font-size: 12px;
+                font-weight: bold;
+                padding: 5px;
+                background-color: #2a2a2a;
+                border-radius: 4px;
+            }
+        """)
+        self.osc_status.setAlignment(QtCore.Qt.AlignCenter)
+        osc_layout.addWidget(self.osc_status)
+
+        # Connection settings section
+        connection_container = QtWidgets.QWidget()
+        connection_layout = QtWidgets.QVBoxLayout()
+        connection_layout.setSpacing(10)
+
+        connection_label = QtWidgets.QLabel("Connection Settings")
+        connection_label.setStyleSheet("color: white; font-size: 14px; font-weight: bold;")
+        connection_layout.addWidget(connection_label)
+
+        # OSC Address input
+        address_input_layout = QtWidgets.QVBoxLayout()
+        address_input_layout.setSpacing(3)
+
+        address_label = QtWidgets.QLabel("Target Address")
+        address_label.setStyleSheet("color: #bbb; font-size: 10px;")
+
+        self.osc_address_input = QtWidgets.QLineEdit()
+        self.osc_address_input.setText("127.0.0.1")
+        self.osc_address_input.setPlaceholderText("IP Address")
+        self.osc_address_input.setStyleSheet("""
+            QLineEdit {
+                background-color: #4a4a4a;
+                border: 2px solid #666;
+                border-radius: 6px;
+                padding: 8px 12px;
+                color: white;
+                font-size: 11px;
+            }
+            QLineEdit:focus {
+                border-color: #FF9800;
+                background-color: #525252;
+            }
+            QLineEdit:hover {
+                border-color: #777;
+            }
+        """)
+
+        address_input_layout.addWidget(address_label)
+        address_input_layout.addWidget(self.osc_address_input)
+        connection_layout.addLayout(address_input_layout)
+
+        # Port settings in a grid layout
+        ports_container = QtWidgets.QWidget()
+        ports_layout = QtWidgets.QHBoxLayout()
+        ports_layout.setSpacing(10)
+
+        # Listen port
+        listen_layout = QtWidgets.QVBoxLayout()
+        listen_layout.setSpacing(3)
+
+        port_input_label = QtWidgets.QLabel("Listen Port")
+        port_input_label.setStyleSheet("color: #bbb; font-size: 10px;")
+
+        self.osc_port_input = QtWidgets.QLineEdit()
+        self.osc_port_input.setText("8000")
+        self.osc_port_input.setPlaceholderText("8000")
+        self.osc_port_input.setStyleSheet("""
+            QLineEdit {
+                background-color: #4a4a4a;
+                border: 2px solid #666;
+                border-radius: 6px;
+                padding: 8px 8px;
+                color: white;
+                font-size: 11px;
+            }
+            QLineEdit:focus {
+                border-color: #4CAF50;
+            }
+        """)
+
+        listen_layout.addWidget(port_input_label)
+        listen_layout.addWidget(self.osc_port_input)
+
+        # Send port
+        send_layout = QtWidgets.QVBoxLayout()
+        send_layout.setSpacing(3)
+
+        port_output_label = QtWidgets.QLabel("Send Port")
+        port_output_label.setStyleSheet("color: #bbb; font-size: 10px;")
+
+        self.osc_port_output = QtWidgets.QLineEdit()
+        self.osc_port_output.setText("9000")
+        self.osc_port_output.setPlaceholderText("9000")
+        self.osc_port_output.setStyleSheet("""
+            QLineEdit {
+                background-color: #4a4a4a;
+                border: 2px solid #666;
+                border-radius: 6px;
+                padding: 8px 8px;
+                color: white;
+                font-size: 11px;
+            }
+            QLineEdit:focus {
+                border-color: #FF5722;
+            }
+        """)
+
+        send_layout.addWidget(port_output_label)
+        send_layout.addWidget(self.osc_port_output)
+
+        ports_layout.addLayout(listen_layout)
+        ports_layout.addLayout(send_layout)
+        ports_container.setLayout(ports_layout)
+        connection_layout.addWidget(ports_container)
+
+        connection_container.setLayout(connection_layout)
+        osc_layout.addWidget(connection_container)
+
+        # Connection info display
+        self.osc_info_label = QtWidgets.QLabel("Ready to connect")
+        self.osc_info_label.setStyleSheet("""
+            QLabel {
+                color: #bbb;
+                font-size: 10px;
+                font-style: italic;
+                padding: 5px;
+                background-color: #2a2a2a;
+                border-radius: 3px;
+                margin: 5px 0;
+            }
+        """)
+        self.osc_info_label.setAlignment(QtCore.Qt.AlignCenter)
+        osc_layout.addWidget(self.osc_info_label)
+
+        # Start/Stop OSC button
+        self.osc_button = QtWidgets.QPushButton('🌐 Start OSC Communication')
+        self.osc_button.setStyleSheet("""
+            QPushButton {
+                background-color: #FF9800;
+                color: white;
+                border: none;
+                padding: 12px 20px;
+                border-radius: 6px;
+                font-weight: bold;
+                font-size: 12px;
+                margin-top: 10px;
+            }
+            QPushButton:hover {
+                background-color: #F57C00;
+            }
+            QPushButton:pressed {
+                background-color: #E65100;
+            }
+        """)
+        self.osc_button.clicked.connect(self.toggle_osc)
+        osc_layout.addWidget(self.osc_button)
+
+        osc_group.setLayout(osc_layout)
+        main_layout.addWidget(osc_group)
+        main_layout.addStretch()
+
+        # Set panel properties
+        osc_panel.setLayout(main_layout)
+        osc_panel.setMinimumWidth(320)
+        osc_panel.setMaximumWidth(380)
+        osc_panel.setStyleSheet("""
+            QWidget {
+                background-color: #2b2b2b;
+                color: white;
+            }
+        """)
+
+        return osc_panel
+
+    # Helper methods for improved functionality
+    def send_trigger_safely(self):
+        """Send trigger with validation and feedback"""
+        try:
+            trigger_value = int(self.input_box.text())
+            if 1 <= trigger_value <= 255:
+                self.write_trigger(trigger_value)
+                # Visual feedback
+                original_style = self.trigger_button.styleSheet()
+                self.trigger_button.setStyleSheet(original_style.replace('#4CAF50', '#66BB6A'))
+                QtCore.QTimer.singleShot(200, lambda: self.trigger_button.setStyleSheet(original_style))
+            else:
+                self.show_trigger_error("Trigger value must be between 1-255")
+        except ValueError:
+            self.show_trigger_error("Please enter a valid number")
+
+    def show_trigger_error(self, message):
+        """Show trigger input error"""
+        original_style = self.input_box.styleSheet()
+        error_style = original_style.replace('#666', '#f44336').replace('#4CAF50', '#f44336')
+        self.input_box.setStyleSheet(error_style)
+        self.input_box.setPlaceholderText(message)
+        QtCore.QTimer.singleShot(2000, lambda: [
+            self.input_box.setStyleSheet(original_style),
+            self.input_box.setPlaceholderText('Enter value (1-255)')
+        ])
+
+    def update_lsl_status(self, connected=False):
+        """Update LSL status indicator"""
+        if hasattr(self, 'lsl_status'):
+            if connected:
+                self.lsl_status.setText("●  LSL: Connected")
+                self.lsl_status.setStyleSheet("""
+                    QLabel {
+                        color: #4CAF50;
+                        font-size: 12px;
+                        font-weight: bold;
+                        padding: 5px;
+                        background-color: #2a2a2a;
+                        border-radius: 4px;
+                    }
+                """)
+                self.lsl_button.setText('🛑 Stop LSL Stream')
+                self.trigger_button.setEnabled(True)
+            else:
+                self.lsl_status.setText("●  LSL: Stopped")
+                self.lsl_status.setStyleSheet("""
+                    QLabel {
+                        color: #f44336;
+                        font-size: 12px;
+                        font-weight: bold;
+                        padding: 5px;
+                        background-color: #2a2a2a;
+                        border-radius: 4px;
+                    }
+                """)
+                self.lsl_button.setText('🚀 Start LSL Stream')
+                self.trigger_button.setEnabled(False)
+
+    def update_osc_status(self, connected=False, address="", listen_port="", send_port=""):
+        """Update OSC status indicator"""
+        if hasattr(self, 'osc_status'):
+            if connected:
+                self.osc_status.setText("●  OSC: Connected")
+                self.osc_status.setStyleSheet("""
+                    QLabel {
+                        color: #4CAF50;
+                        font-size: 12px;
+                        font-weight: bold;
+                        padding: 5px;
+                        background-color: #2a2a2a;
+                        border-radius: 4px;
+                    }
+                """)
+                self.osc_button.setText('🛑 Stop OSC Communication')
+                self.osc_info_label.setText(f"Connected: {address}:{listen_port} ⇄ {send_port}")
+
+                # Disable inputs when connected
+                self.osc_address_input.setEnabled(False)
+                self.osc_port_input.setEnabled(False)
+                self.osc_port_output.setEnabled(False)
+            else:
+                self.osc_status.setText("●  OSC: Disconnected")
+                self.osc_status.setStyleSheet("""
+                    QLabel {
+                        color: #f44336;
+                        font-size: 12px;
+                        font-weight: bold;
+                        padding: 5px;
+                        background-color: #2a2a2a;
+                        border-radius: 4px;
+                    }
+                """)
+                self.osc_button.setText('🌐 Start OSC Communication')
+                self.osc_info_label.setText("Ready to connect")
+
+                # Enable inputs when disconnected
+                self.osc_address_input.setEnabled(True)
+                self.osc_port_input.setEnabled(True)
+                self.osc_port_output.setEnabled(True)
+
+    # Update your existing toggle methods to use the new status updates
+    def toggle_lsl(self):
+        """Toggle LSL streaming on and off with visual feedback"""
+        if self.lsl_state:
+            self.lsl_thread.quit()
+            self.update_lsl_status(connected=False)
+            self.lsl_state = False
+        else:
+            self.lsl_thread.start()
+            self.update_lsl_status(connected=True)
+            self.lsl_state = True
+
+    def toggle_osc(self):
+        """Toggle OSC communication with visual feedback"""
+        if not self.osc_state:
+            listen_port = int(self.osc_port_input.text())
+            send_port = int(self.osc_port_output.text())
+            address = self.osc_address_input.text()
+
+            self.osc_thread = OscStreamThread(listen_port=listen_port, send_port=send_port)
+            self.osc_thread.message_received.connect(lambda addr, args: print(f"Received {addr}: {args}"))
+            self.osc_thread.start()
+
+            self.update_osc_status(connected=True, address=address,
+                                   listen_port=str(listen_port), send_port=str(send_port))
+            self.osc_state = True
+        else:
+            if self.osc_thread:
+                self.osc_thread.stop()
+                self.osc_thread = None
+            self.update_osc_status(connected=False)
+            self.osc_state = False
+
+    def create_parameters_panel(self):
+        """Create buttons to interact with the neuroengine - Modern styled version"""
+
+        # Main container
         parameters = QtWidgets.QWidget()
-        parameters.setLayout(vertical_container)
-        parameters.setMaximumWidth(250)
-        parameters.setMaximumHeight(500)
-        parameters.setStyleSheet("background-color: #43485E; color: white;")
+        main_layout = QtWidgets.QVBoxLayout()
+        main_layout.setSpacing(15)
+        main_layout.setContentsMargins(15, 15, 15, 15)
+
+        # ==================== EEG OPTIONS SECTION ====================
+        eeg_group = QtWidgets.QGroupBox()
+        eeg_group.setStyleSheet("""
+            QGroupBox {
+                border: 2px solid #555;
+                border-radius: 8px;
+                margin: 5px;
+                padding: 10px;
+                background-color: #3a3a3a;
+            }
+        """)
+        eeg_layout = QtWidgets.QVBoxLayout()
+
+        # Section title
+        eeg_options_label = QtWidgets.QLabel("EEG Options")
+        eeg_options_label.setStyleSheet("color: white; font-size: 16px; font-weight: bold; margin-bottom: 10px;")
+        eeg_options_label.setAlignment(QtCore.Qt.AlignCenter)
+        eeg_layout.addWidget(eeg_options_label)
+
+        # Save data checkbox - styled
+        self.save_data_checkbox = QtWidgets.QCheckBox('Save to CSV')
+        self.save_data_checkbox.setStyleSheet("""
+            QCheckBox {
+                color: white;
+                font-weight: bold;
+                font-size: 12px;
+                padding: 5px;
+            }
+            QCheckBox::indicator {
+                width: 18px;
+                height: 18px;
+            }
+            QCheckBox::indicator:checked {
+                background-color: #4CAF50;
+                border: 2px solid #45a049;
+                border-radius: 3px;
+            }
+            QCheckBox::indicator:unchecked {
+                background-color: #555;
+                border: 2px solid #777;
+                border-radius: 3px;
+            }
+        """)
+        self.save_data_checkbox.setChecked(self.save_data)
+        eeg_layout.addWidget(self.save_data_checkbox)
+
+        # Start/Stop plot button - modern style
+        self.start_button = QtWidgets.QPushButton('Stop Plot')
+        self.start_button.setStyleSheet("""
+            QPushButton {
+                background-color: #f44336;
+                color: white;
+                border: none;
+                padding: 10px 20px;
+                border-radius: 6px;
+                font-weight: bold;
+                font-size: 12px;
+            }
+            QPushButton:hover {
+                background-color: #da190b;
+            }
+            QPushButton:pressed {
+                background-color: #b71c1c;
+            }
+        """)
+        self.start_button.clicked.connect(lambda: self.toggle_plot())
+        eeg_layout.addWidget(self.start_button)
+
+        eeg_group.setLayout(eeg_layout)
+        main_layout.addWidget(eeg_group)
+
+        # ==================== FILTERS SECTION ====================
+        filters_group = QtWidgets.QGroupBox()
+        filters_group.setStyleSheet("""
+            QGroupBox {
+                border: 2px solid #555;
+                border-radius: 8px;
+                margin: 5px;
+                padding: 10px;
+                background-color: #3a3a3a;
+            }
+        """)
+        filters_layout = QtWidgets.QVBoxLayout()
+
+        # Section title
+        filters_label = QtWidgets.QLabel("Signal Filters")
+        filters_label.setStyleSheet("color: white; font-size: 16px; font-weight: bold; margin-bottom: 10px;")
+        filters_label.setAlignment(QtCore.Qt.AlignCenter)
+        filters_layout.addWidget(filters_label)
+
+        # Bandpass filter section
+        bandpass_container = QtWidgets.QWidget()
+        bandpass_layout = QtWidgets.QVBoxLayout()
+        bandpass_layout.setSpacing(8)
+
+        self.bandpass_checkbox = QtWidgets.QCheckBox('Bandpass Filter (Hz)')
+        self.bandpass_checkbox.setStyleSheet("""
+            QCheckBox {
+                color: white;
+                font-weight: bold;
+                font-size: 12px;
+            }
+            QCheckBox::indicator {
+                width: 16px;
+                height: 16px;
+            }
+            QCheckBox::indicator:checked {
+                background-color: #2196F3;
+                border: 2px solid #1976D2;
+                border-radius: 3px;
+            }
+            QCheckBox::indicator:unchecked {
+                background-color: #555;
+                border: 2px solid #777;
+                border-radius: 3px;
+            }
+        """)
+        bandpass_layout.addWidget(self.bandpass_checkbox)
+
+        # Bandpass frequency inputs
+        bandpass_inputs_layout = QtWidgets.QHBoxLayout()
+        bandpass_inputs_layout.setSpacing(10)
+
+        # Low frequency input
+        low_freq_layout = QtWidgets.QVBoxLayout()
+        low_freq_layout.setSpacing(2)
+        low_label = QtWidgets.QLabel("Low")
+        low_label.setStyleSheet("color: #bbb; font-size: 10px;")
+        low_label.setAlignment(QtCore.Qt.AlignCenter)
+
+        self.bandpass_box_low = QtWidgets.QLineEdit()
+        self.bandpass_box_low.setPlaceholderText('1.0')
+        self.bandpass_box_low.setText('1')
+        self.bandpass_box_low.setStyleSheet("""
+            QLineEdit {
+                background-color: #4a4a4a;
+                border: 2px solid #666;
+                border-radius: 4px;
+                padding: 6px;
+                color: white;
+                font-size: 11px;
+            }
+            QLineEdit:focus {
+                border-color: #2196F3;
+            }
+        """)
+        self.bandpass_box_low.setMaximumWidth(50)
+
+        low_freq_layout.addWidget(low_label)
+        low_freq_layout.addWidget(self.bandpass_box_low)
+
+        # High frequency input
+        high_freq_layout = QtWidgets.QVBoxLayout()
+        high_freq_layout.setSpacing(2)
+        high_label = QtWidgets.QLabel("High")
+        high_label.setStyleSheet("color: #bbb; font-size: 10px;")
+        high_label.setAlignment(QtCore.Qt.AlignCenter)
+
+        self.bandpass_box_high = QtWidgets.QLineEdit()
+        self.bandpass_box_high.setPlaceholderText('40.0')
+        self.bandpass_box_high.setText('40')
+        self.bandpass_box_high.setStyleSheet("""
+            QLineEdit {
+                background-color: #4a4a4a;
+                border: 2px solid #666;
+                border-radius: 4px;
+                padding: 6px;
+                color: white;
+                font-size: 11px;
+            }
+            QLineEdit:focus {
+                border-color: #2196F3;
+            }
+        """)
+        self.bandpass_box_high.setMaximumWidth(50)
+
+        high_freq_layout.addWidget(high_label)
+        high_freq_layout.addWidget(self.bandpass_box_high)
+
+        bandpass_inputs_layout.addLayout(low_freq_layout)
+        bandpass_inputs_layout.addWidget(QtWidgets.QLabel("-"))  # Separator
+        bandpass_inputs_layout.addLayout(high_freq_layout)
+        bandpass_inputs_layout.addStretch()
+
+        bandpass_layout.addLayout(bandpass_inputs_layout)
+        bandpass_container.setLayout(bandpass_layout)
+        filters_layout.addWidget(bandpass_container)
+
+        # Separator line
+        separator1 = QtWidgets.QFrame()
+        separator1.setFrameShape(QtWidgets.QFrame.HLine)
+        separator1.setStyleSheet("color: #666;")
+        filters_layout.addWidget(separator1)
+
+        # Notch filter section
+        notch_container = QtWidgets.QWidget()
+        notch_layout = QtWidgets.QVBoxLayout()
+        notch_layout.setSpacing(8)
+
+        self.notch_checkbox = QtWidgets.QCheckBox('Notch Filter (Hz)')
+        self.notch_checkbox.setStyleSheet("""
+            QCheckBox {
+                color: white;
+                font-weight: bold;
+                font-size: 12px;
+            }
+            QCheckBox::indicator {
+                width: 16px;
+                height: 16px;
+            }
+            QCheckBox::indicator:checked {
+                background-color: #FF9800;
+                border: 2px solid #F57C00;
+                border-radius: 3px;
+            }
+            QCheckBox::indicator:unchecked {
+                background-color: #555;
+                border: 2px solid #777;
+                border-radius: 3px;
+            }
+        """)
+        notch_layout.addWidget(self.notch_checkbox)
+
+        # Notch frequency input
+        notch_freq_layout = QtWidgets.QVBoxLayout()
+        notch_freq_layout.setSpacing(2)
+        notch_label = QtWidgets.QLabel("Frequencies (comma separated)")
+        notch_label.setStyleSheet("color: #bbb; font-size: 10px;")
+
+        self.notch_box = QtWidgets.QLineEdit()
+        self.notch_box.setPlaceholderText('50, 60')
+        self.notch_box.setText('50, 60')
+        self.notch_box.setStyleSheet("""
+            QLineEdit {
+                background-color: #4a4a4a;
+                border: 2px solid #666;
+                border-radius: 4px;
+                padding: 6px;
+                color: white;
+                font-size: 11px;
+            }
+            QLineEdit:focus {
+                border-color: #FF9800;
+            }
+        """)
+
+        notch_freq_layout.addWidget(notch_label)
+        notch_freq_layout.addWidget(self.notch_box)
+        notch_layout.addLayout(notch_freq_layout)
+
+        notch_container.setLayout(notch_layout)
+        filters_layout.addWidget(notch_container)
+
+        filters_group.setLayout(filters_layout)
+        main_layout.addWidget(filters_group)
+
+        # ==================== CLASSIFIER SECTION ====================
+        classifier_group = QtWidgets.QGroupBox()
+        classifier_group.setStyleSheet("""
+            QGroupBox {
+                border: 2px solid #555;
+                border-radius: 8px;
+                margin: 5px;
+                padding: 10px;
+                background-color: #3a3a3a;
+            }
+        """)
+        classifier_layout = QtWidgets.QVBoxLayout()
+
+        # Section title
+        model_label = QtWidgets.QLabel("Classifier Analysis")
+        model_label.setStyleSheet("color: white; font-size: 16px; font-weight: bold; margin-bottom: 10px;")
+        model_label.setAlignment(QtCore.Qt.AlignCenter)
+        classifier_layout.addWidget(model_label)
+
+        # Classifier buttons layout
+        classifier_buttons_layout = QtWidgets.QHBoxLayout()
+        classifier_buttons_layout.setSpacing(10)
+
+        # ROC button
+        self.roc_button = QtWidgets.QPushButton('Plot ROC')
+        self.roc_button.setStyleSheet("""
+            QPushButton {
+                background-color: #9C27B0;
+                color: white;
+                border: none;
+                padding: 8px 12px;
+                border-radius: 6px;
+                font-weight: bold;
+                font-size: 11px;
+            }
+            QPushButton:hover {
+                background-color: #7B1FA2;
+            }
+            QPushButton:pressed {
+                background-color: #4A148C;
+            }
+            QPushButton:disabled {
+                background-color: #666;
+                color: #999;
+            }
+        """)
+        self.roc_button.clicked.connect(lambda: self.classifier.plot_roc_curve())
+        classifier_buttons_layout.addWidget(self.roc_button)
+
+        # Confusion Matrix button
+        self.confusion_button = QtWidgets.QPushButton('Plot CM')
+        self.confusion_button.setStyleSheet("""
+            QPushButton {
+                background-color: #673AB7;
+                color: white;
+                border: none;
+                padding: 8px 12px;
+                border-radius: 6px;
+                font-weight: bold;
+                font-size: 11px;
+            }
+            QPushButton:hover {
+                background-color: #512DA8;
+            }
+            QPushButton:pressed {
+                background-color: #311B92;
+            }
+            QPushButton:disabled {
+                background-color: #666;
+                color: #999;
+            }
+        """)
+        self.confusion_button.clicked.connect(lambda: self.classifier.plot_confusion_matrix())
+        classifier_buttons_layout.addWidget(self.confusion_button)
+
+        classifier_layout.addLayout(classifier_buttons_layout)
+
+        # Add classifier status indicator
+        self.classifier_status = QtWidgets.QLabel("Classifier: Not Ready")
+        self.classifier_status.setStyleSheet("""
+            QLabel {
+                color: #ff9800;
+                font-size: 10px;
+                font-style: italic;
+                padding: 5px;
+                background-color: #2a2a2a;
+                border-radius: 3px;
+                margin-top: 5px;
+            }
+        """)
+        self.classifier_status.setAlignment(QtCore.Qt.AlignCenter)
+        classifier_layout.addWidget(self.classifier_status)
+
+        classifier_group.setLayout(classifier_layout)
+        main_layout.addWidget(classifier_group)
+
+        # ==================== SPACER AND FINAL SETUP ====================
+        main_layout.addStretch()  # Push everything to the top
+
+        # Set the main layout
+        parameters.setLayout(main_layout)
+        parameters.setMinimumWidth(320)
+        parameters.setMaximumWidth(380)
+        parameters.setStyleSheet("""
+            QWidget {
+                background-color: #2b2b2b;
+                color: white;
+            }
+            QLabel {
+                color: white;
+            }
+        """)
+
+        # Connect filter checkboxes to enable/disable inputs
+        self.bandpass_checkbox.stateChanged.connect(self.on_bandpass_toggled)
+        self.notch_checkbox.stateChanged.connect(self.on_notch_toggled)
+
+        # Initial state
+        self.on_bandpass_toggled(self.bandpass_checkbox.checkState())
+        self.on_notch_toggled(self.notch_checkbox.checkState())
 
         return parameters
+
+    def on_bandpass_toggled(self, state):
+        """Enable/disable bandpass filter inputs based on checkbox"""
+        enabled = state == QtCore.Qt.Checked
+        self.bandpass_box_low.setEnabled(enabled)
+        self.bandpass_box_high.setEnabled(enabled)
+
+        # Update visual state
+        if enabled:
+            self.bandpass_box_low.setStyleSheet(
+                self.bandpass_box_low.styleSheet().replace('color: #666', 'color: white'))
+            self.bandpass_box_high.setStyleSheet(
+                self.bandpass_box_high.styleSheet().replace('color: #666', 'color: white'))
+        else:
+            # Make inputs look disabled
+            disabled_style = """
+                QLineEdit {
+                    background-color: #333;
+                    border: 2px solid #555;
+                    border-radius: 4px;
+                    padding: 6px;
+                    color: #666;
+                    font-size: 11px;
+                }
+            """
+            self.bandpass_box_low.setStyleSheet(disabled_style)
+            self.bandpass_box_high.setStyleSheet(disabled_style)
+
+    def on_notch_toggled(self, state):
+        """Enable/disable notch filter inputs based on checkbox"""
+        enabled = state == QtCore.Qt.Checked
+        self.notch_box.setEnabled(enabled)
+
+        # Update visual state
+        if enabled:
+            self.notch_box.setStyleSheet("""
+                QLineEdit {
+                    background-color: #4a4a4a;
+                    border: 2px solid #666;
+                    border-radius: 4px;
+                    padding: 6px;
+                    color: white;
+                    font-size: 11px;
+                }
+                QLineEdit:focus {
+                    border-color: #FF9800;
+                }
+            """)
+        else:
+            self.notch_box.setStyleSheet("""
+                QLineEdit {
+                    background-color: #333;
+                    border: 2px solid #555;
+                    border-radius: 4px;
+                    padding: 6px;
+                    color: #666;
+                    font-size: 11px;
+                }
+            """)
+
+    def update_classifier_status(self, status="ready"):
+        """Update the classifier status indicator"""
+        if hasattr(self, 'classifier_status'):
+            if status == "ready":
+                self.classifier_status.setText("Classifier: Ready")
+                self.classifier_status.setStyleSheet("""
+                    QLabel {
+                        color: #4CAF50;
+                        font-size: 10px;
+                        font-style: italic;
+                        padding: 5px;
+                        background-color: #2a2a2a;
+                        border-radius: 3px;
+                        margin-top: 5px;
+                    }
+                """)
+                self.roc_button.setEnabled(True)
+                self.confusion_button.setEnabled(True)
+            elif status == "training":
+                self.classifier_status.setText("Classifier: Training...")
+                self.classifier_status.setStyleSheet("""
+                    QLabel {
+                        color: #2196F3;
+                        font-size: 10px;
+                        font-style: italic;
+                        padding: 5px;
+                        background-color: #2a2a2a;
+                        border-radius: 3px;
+                        margin-top: 5px;
+                    }
+                """)
+                self.roc_button.setEnabled(False)
+                self.confusion_button.setEnabled(False)
+            else:  # not ready
+                self.classifier_status.setText("Classifier: Not Ready")
+                self.classifier_status.setStyleSheet("""
+                    QLabel {
+                        color: #ff9800;
+                        font-size: 10px;
+                        font-style: italic;
+                        padding: 5px;
+                        background-color: #2a2a2a;
+                        border-radius: 3px;
+                        margin-top: 5px;
+                    }
+                """)
+                self.roc_button.setEnabled(False)
+                self.confusion_button.setEnabled(False)
+
+    def create_frequency_band_panel(self):
+        # Define the constraints for each band
+        band_constraints = {
+            'delta': (1, 4),
+            'theta': (4, 8),
+            'alpha': (8, 12),
+            'beta': (12, 30),
+            'gamma': (30, 50)
+        }
+
+        self.freq_band_panel = FrequencyBandPanel(band_constraints)
+        self.freq_band_panel.bandsChanged.connect(self.on_frequency_bands_changed)
+
+        return self.freq_band_panel
 
     def set_inference_mode(self):
         """Set the BCI running status"""
@@ -304,12 +1283,17 @@ class StreamerGUI:
             return
 
         try:
-            band_powers = extract_band_powers(data=self.filtered_eeg[0:len(self.eeg_channels)], fs=self.sampling_rate,
-                                              bands=freq_bands, ch_names=self.eeg_channels)
-            band_powers_array = band_powers.to_numpy()
+
+            outputs = self.pipeline(self.filtered_eeg[0:len(self.eeg_channels)])
+            band_powers = outputs["band_power"]
+            quality_scores = outputs["quality"]
+            band_powers_array = [band_powers[band] for band in band_powers.keys()]
+            #push_lsl_band_powers(self.band_powers_outlet, band_powers_array, ts, band_powers.keys())
+            push_lsl_quality(self.quality_outlet, quality_scores)
             push_lsl_raw_eeg(self.eeg_outlet, self.filtered_eeg, start_eeg, end_eeg, self.chunk_counter, ts,
                              self.lsl_chunk_checkbox.isChecked())
-            push_lsl_band_powers(self.band_powers_outlet, band_powers_array, ts)
+            # Send a test message
+            if self.osc_thread: self.osc_thread.send_message(self.osc_address_input.text(), band_powers)
         except Exception as e:
             logging.error(f"Error pushing data to LSL: {e}")
         self.app.processEvents()
@@ -437,30 +1421,8 @@ class StreamerGUI:
         :param trigger: int, trigger value
         :param timestamp: float, timestamp value
         """
-        if trigger == '':
-            logging.error("Trigger value cannot be empty")
-            return
-        if timestamp == 0:
-            timestamp = time.time()
-        self.board.insert_marker(int(trigger))
-        if self.inference_mode:
+        self.gui_adapter.send_trigger(trigger)
 
-            # TODO figure out the criterion for the slicing trigger
-            if self.nclasses < 10:
-                slicing_trigger = self.nclasses  # add two to ensure the whole event time is covered
-            elif self.nclasses >= 10:
-                if self.nclasses % 2 == 0:
-                    slicing_trigger = (self.nclasses // 2) + 1  # add one to ensure the whole event time is covered
-                else:
-                    slicing_trigger = (self.nclasses // 2) + 2  # add two to ensure the whole event time is covered
-
-            slicing_trigger = self.slicing_trigger  # Stick with basic formula
-
-            if int(trigger) == slicing_trigger and not self.first_prediction:  # half way trial
-                self.predict_class()
-            elif int(trigger) == slicing_trigger and self.first_prediction:
-                logging.debug('Skipping first prediction')
-                self.first_prediction = False
 
     def init_classifier(self):
         """ Initialize the classifier """
@@ -472,13 +1434,7 @@ class StreamerGUI:
 
     def train_classifier(self):
         """ Train the classifier"""
-        end_training_time = time.time()
-        training_length = end_training_time - self.start_training_time + 1
-        training_interval = int(training_length * self.sampling_rate)
-        logging.info(f"Training duration: {training_length}")
-        data = self.board.get_current_board_data(training_interval)
-        self.filter_data_buffer(data)
-        self.classifier.train(data, oversample=self.over_sample)
+        self.gui_adapter.train_classifier()
 
     def start_prediction_timer(self):
         """Start the prediction timer."""
@@ -530,7 +1486,8 @@ class StreamerGUI:
             self.quality_indicators[i].setBrush(mkBrush(color))
             self.quality_indicators[i].setData([-1], [0])  # Position the circle at (0, 0)
         if push:
-            push_lsl_quality(self.quality_outlet, q_scores)
+            #push_lsl_quality(self.quality_outlet, q_scores)
+            pass
         logging.debug(f"Qualities: {q_scores} {q_colors}")
 
     def get_channel_quality(self, eeg, threshold=75):
@@ -622,3 +1579,53 @@ class StreamerGUI:
         self.lsl_thread.quit()
         self.classifier_thread.join()
         self.board.stop_stream()
+
+    def on_data_updated(self, data):
+        """Handle data updates from StreamEngine"""
+        # For now, just log that we received data
+        logging.debug("Received data update from StreamEngine")
+
+    def on_quality_updated(self, quality_scores):
+        """Handle quality updates from StreamEngine"""
+        logging.debug(f"Received quality update: {quality_scores}")
+
+    def on_prediction_ready(self, prediction):
+        """Handle prediction results from StreamEngine"""
+        logging.info(f"Received prediction: {prediction}")
+
+    def on_classifier_ready(self):
+        """Handle classifier initialization complete"""
+        logging.info("StreamEngine classifier is ready")
+
+    def on_error(self, error_msg):
+        """Handle errors from StreamEngine"""
+        logging.error(f"StreamEngine error: {error_msg}")
+
+    def on_inference_mode_changed(self, mode):
+        """Handle inference mode changes from StreamEngine"""
+        logging.info(f"Inference mode changed: {mode}")
+
+    def on_frequency_bands_changed(self, freq_bands):
+        """Handle frequency band changes"""
+        logging.info(f"Updated frequency bands: {freq_bands}")
+
+        # Update your band power extractor
+        if hasattr(self, 'pipeline'):
+            # Access the band_power component via the branches dictionary
+            if 'band_power' in self.pipeline.branches:
+                self.pipeline.branches['band_power'].update_frequency_bands(freq_bands)
+            else:
+                logging.warning("band_power component not found in pipeline branches")
+
+    def on_average_frequency_bands_changed(self, average):
+        """Handle average frequency bands changes"""
+        logging.debug(f"Average frequency bands changed: {'Enabled' if average else 'Disabled'}")
+
+        # Update your band power extractor
+        if hasattr(self, 'pipeline'):
+            # Access the band_power component via the branches dictionary
+            if 'band_power' in self.pipeline.branches:
+                self.pipeline.branches['band_power'].update_average(average)
+            else:
+                logging.warning("band_power component not found in pipeline branches")
+
